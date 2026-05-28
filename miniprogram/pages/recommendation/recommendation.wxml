@@ -1,0 +1,59 @@
+<view class="page">
+  <view class="section-title">今日推荐</view>
+
+  <view wx:if="{{loading}}" class="card empty-card">
+    <text class="empty-title">正在同步衣橱</text>
+    <text class="empty-subtitle">推荐会基于最新衣物生成。</text>
+  </view>
+
+  <view wx:elif="{{!items.length}}" class="card empty-card">
+    <text class="empty-title">衣橱还是空的</text>
+    <text class="empty-subtitle">先添加上衣、下装和鞋子，推荐会更完整。</text>
+    <button class="primary-button" bindtap="goWardrobe">去添加衣物</button>
+  </view>
+
+  <view wx:else>
+    <view class="summary">
+      <text>上衣 {{counts.top}}</text>
+      <text>下装 {{counts.bottom}}</text>
+      <text>鞋子 {{counts.shoes}}</text>
+    </view>
+    <view class="rule-context">
+      <text>按 {{recommendationContext.temperature}}℃、季节和风格标签排序</text>
+    </view>
+    <button class="primary-button generate-button" bindtap="generate">换一组推荐</button>
+
+    <view class="result-list">
+      <view wx:for="{{results}}" wx:key="id" class="card result-card">
+        <view class="result-header">
+          <text class="result-index">方案 {{index + 1}}</text>
+          <text class="result-tag">{{item.tag}}</text>
+        </view>
+        <view class="preview-grid">
+          <view class="preview-cell">
+            <image wx:if="{{item.top && item.top.imageUrl}}" src="{{item.top.imageUrl}}" mode="aspectFill" />
+            <text wx:elif="{{item.top}}">{{item.top.name}}</text>
+            <text wx:else>暂无上衣</text>
+          </view>
+          <view class="preview-cell">
+            <image wx:if="{{item.bottom && item.bottom.imageUrl}}" src="{{item.bottom.imageUrl}}" mode="aspectFill" />
+            <text wx:elif="{{item.bottom}}">{{item.bottom.name}}</text>
+            <text wx:else>暂无下装</text>
+          </view>
+          <view class="preview-cell">
+            <image wx:if="{{item.shoes && item.shoes.imageUrl}}" src="{{item.shoes.imageUrl}}" mode="aspectFill" />
+            <text wx:elif="{{item.shoes}}">{{item.shoes.name}}</text>
+            <text wx:else>暂无鞋子</text>
+          </view>
+          <view class="preview-cell accessory">
+            <image wx:if="{{item.accessory && item.accessory.imageUrl}}" src="{{item.accessory.imageUrl}}" mode="aspectFill" />
+            <text wx:elif="{{item.accessory}}">{{item.accessory.name}}</text>
+            <text wx:else>配饰可选</text>
+          </view>
+        </view>
+        <text class="reason">{{item.reason}}</text>
+        <button class="primary-button save-button" data-index="{{index}}" bindtap="saveRecommendation">记录这套</button>
+      </view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,98 @@
+<view class="page">
+  <view class="wardrobe-header">
+    <view>
+      <text class="section-title header-title">我的衣橱</text>
+      <text class="header-subtitle">已收纳 {{items.length}} 件衣物</text>
+    </view>
+    <button class="primary-button add-button" bindtap="openForm">添加</button>
+  </view>
+
+  <view class="tabs">
+    <button wx:for="{{types}}" wx:key="value" class="tab {{activeType === item.value ? 'active' : ''}}" data-type="{{item.value}}" bindtap="changeType">
+      {{item.label}}
+    </button>
+  </view>
+
+  <view wx:if="{{showForm}}" class="card form-card">
+    <text class="form-title">{{editingId ? '编辑衣物' : '添加衣物'}}</text>
+    <view class="form-row">
+      <text class="label">分类</text>
+      <picker range="{{typeLabels}}" value="{{typeIndex}}" bindchange="changeFormType">
+        <view class="picker-value">{{typeLabels[typeIndex]}}</view>
+      </picker>
+    </view>
+    <view class="form-row">
+      <text class="label">名称</text>
+      <input class="input" value="{{form.name}}" maxlength="20" placeholder="如：白色宽松T恤" data-field="name" bindinput="updateForm" />
+    </view>
+    <view class="form-row">
+      <text class="label">颜色</text>
+      <input class="input" value="{{form.color}}" maxlength="12" placeholder="如：白色" data-field="color" bindinput="updateForm" />
+    </view>
+    <view class="form-row">
+      <text class="label">风格</text>
+      <input class="input" value="{{form.style}}" maxlength="16" placeholder="如：通勤、休闲" data-field="style" bindinput="updateForm" />
+    </view>
+    <view class="form-row">
+      <text class="label">季节</text>
+      <picker range="{{seasonLabels}}" value="{{seasonIndex}}" bindchange="changeSeason">
+        <view class="picker-value">{{seasonLabels[seasonIndex]}}</view>
+      </picker>
+    </view>
+    <view class="form-row">
+      <text class="label">温度</text>
+      <view class="temp-inputs">
+        <input class="input temp-input" type="number" value="{{form.tempMin}}" data-field="tempMin" bindinput="updateForm" />
+        <text class="temp-separator">至</text>
+        <input class="input temp-input" type="number" value="{{form.tempMax}}" data-field="tempMax" bindinput="updateForm" />
+        <text class="temp-unit">℃</text>
+      </view>
+    </view>
+    <view class="form-row">
+      <text class="label">主色</text>
+      <input class="input" value="{{form.mainColor}}" maxlength="12" placeholder="默认使用颜色" data-field="mainColor" bindinput="updateForm" />
+    </view>
+    <view class="form-row">
+      <text class="label">标签</text>
+      <input class="input" value="{{form.tagsInput}}" maxlength="36" placeholder="如：通勤、简约" data-field="tagsInput" bindinput="updateForm" />
+    </view>
+    <view class="image-picker" bindtap="chooseImage">
+      <image wx:if="{{form.imageUrl}}" class="preview" src="{{form.imageUrl}}" mode="aspectFill" />
+      <view wx:else class="image-empty">
+        <text class="image-empty-title">添加衣物图片</text>
+        <text class="image-empty-subtitle">点击选择相册或拍照</text>
+      </view>
+    </view>
+    <button class="secondary-button analyze-button" loading="{{analyzing}}" bindtap="analyzeImage">AI 分析图片</button>
+    <view class="form-actions">
+      <button class="secondary-button" bindtap="closeForm">取消</button>
+      <button class="primary-button" loading="{{saving}}" bindtap="saveItem">{{editingId ? '保存修改' : '保存衣物'}}</button>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card empty-card">
+    <text class="empty-title">正在同步衣橱</text>
+    <text class="empty-subtitle">稍等一下，正在读取云端衣物。</text>
+  </view>
+
+  <view wx:elif="{{filteredItems.length}}" class="grid">
+    <view wx:for="{{filteredItems}}" wx:key="id" class="item-card">
+      <image wx:if="{{item.imageUrl}}" class="item-image" src="{{item.imageUrl}}" mode="aspectFill" />
+      <view wx:else class="item-image item-placeholder">{{item.name}}</view>
+      <view class="item-info">
+        <text class="item-name">{{item.name}}</text>
+        <text class="item-meta">{{item.mainColor || item.color || '未填颜色'}} · {{item.style || '日常'}}</text>
+      </view>
+      <view class="item-actions">
+        <button class="edit-button" data-id="{{item.id}}" bindtap="editItem">编辑</button>
+        <button class="delete-button" data-id="{{item.id}}" bindtap="deleteItem">删除</button>
+      </view>
+    </view>
+  </view>
+
+  <view wx:else class="card empty-card">
+    <text class="empty-title">这个分类还是空的</text>
+    <text class="empty-subtitle">先添加几件常穿单品，推荐页就能开始组合。</text>
+    <button class="primary-button" bindtap="openForm">添加第一件</button>
+  </view>
+</view>

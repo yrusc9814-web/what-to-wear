@@ -1,0 +1,47 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/wardrobe/wardrobe",
+    "pages/recommendation/recommendation"
+  ],
+  "window": {
+    "navigationBarTitleText": "穿搭日记",
+    "navigationBarBackgroundColor": "#fff8f5",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#fff8f5"
+  },
+  "tabBar": {
+    "color": "#8c7f7a",
+    "selectedColor": "#b45f6b",
+    "backgroundColor": "#fffaf7",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "assets/tabbar/home.png",
+        "selectedIconPath": "assets/tabbar/home-active.png"
+      },
+      {
+        "pagePath": "pages/wardrobe/wardrobe",
+        "text": "衣橱",
+        "iconPath": "assets/tabbar/wardrobe.png",
+        "selectedIconPath": "assets/tabbar/wardrobe-active.png"
+      },
+      {
+        "pagePath": "pages/recommendation/recommendation",
+        "text": "推荐",
+        "iconPath": "assets/tabbar/recommendation.png",
+        "selectedIconPath": "assets/tabbar/recommendation-active.png"
+      }
+    ]
+  },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于获取当前城市天气，为你生成穿搭推荐"
+    }
+  },
+  "__usePrivacyCheck__": true,
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

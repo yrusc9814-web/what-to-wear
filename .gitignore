@@ -1,0 +1,16 @@
+.codex-memory/
+.env
+*.env
+node_modules/
+cloudfunctions/**/node_modules/
+miniprogram_npm/
+miniprogram/miniprogram_npm/
+project.private.config.json
+dist/
+build/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
