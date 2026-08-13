@@ -1,310 +1,256 @@
-const wardrobeService = require("../../services/wardrobe-service");
-const { SEASONS, DEFAULT_TEMP_RANGES } = require("../../constants/recommendation");
-const { ensurePrivacyAuthorized } = require("../../utils/privacy");
+const appService = require('../../services/app-service')
+const {
+  CATEGORIES,
+  SEASONS,
+  STYLES,
+  PRIMARY_COLORS,
+  THICKNESSES
+} = require('../../utils/constants')
 
-const TYPES = [
-  { value: "top", label: "上衣" },
-  { value: "bottom", label: "下装" },
-  { value: "shoes", label: "鞋子" },
-  { value: "accessory", label: "配饰" }
-];
-
-const emptyForm = () => ({
-  type: "top",
-  name: "",
-  color: "",
-  style: "",
-  season: "all",
-  tempMin: DEFAULT_TEMP_RANGES.all.min,
-  tempMax: DEFAULT_TEMP_RANGES.all.max,
-  mainColor: "",
-  tagsInput: "",
-  imageUrl: ""
-});
-
-function splitTags(value) {
-  return String(value || "")
-    .split(/[,\s，、/]+/)
-    .map((tag) => tag.trim())
-    .filter(Boolean);
+function valueOf(event) {
+  return event.currentTarget.dataset.value
 }
 
-function getTempRange(item) {
-  if (item && item.tempRange && Number.isFinite(Number(item.tempRange.min)) && Number.isFinite(Number(item.tempRange.max))) {
-    return {
-      min: Number(item.tempRange.min),
-      max: Number(item.tempRange.max)
-    };
-  }
-  return DEFAULT_TEMP_RANGES[(item && item.season) || "all"] || DEFAULT_TEMP_RANGES.all;
+function labelOf(options, value) {
+  const option = (options || []).find((item) => item.value === value)
+  return option ? option.label : (value || '')
+}
+
+function unwrapItems(result) {
+  if (Array.isArray(result)) return result
+  return result && Array.isArray(result.items) ? result.items : []
+}
+
+function arrayValue(value) {
+  if (Array.isArray(value)) return value.filter(Boolean)
+  if (!value || value === 'all') return []
+  return String(value).split(/[,\s，、/]+/).filter(Boolean)
+}
+
+function normalizeCategory(value, name) {
+  if (CATEGORIES.some((item) => item.value === value)) return value
+  if (value === 'accessory') return /帽|cap|hat/i.test(name || '') ? 'hat' : 'bag'
+  return value || 'top'
 }
 
 Page({
   data: {
-    types: TYPES,
-    typeLabels: TYPES.map((type) => type.label),
-    seasons: SEASONS,
-    seasonLabels: SEASONS.map((season) => season.label),
-    typeIndex: 0,
-    seasonIndex: SEASONS.findIndex((season) => season.value === "all"),
-    activeType: "top",
-    showForm: false,
-    loading: false,
-    saving: false,
-    analyzing: false,
-    form: emptyForm(),
-    editingId: "",
+    state: 'loading',
+    errorMessage: '',
     items: [],
-    filteredItems: []
+    visibleItems: [],
+    searchText: '',
+    activeCategory: 'all',
+    viewMode: 'grid',
+    filterOpen: false,
+    appliedFilters: { season: '', style: '', primaryColor: '', thickness: '' },
+    tempFilters: { season: '', style: '', primaryColor: '', thickness: '' },
+    hasActiveFilters: false,
+    categoryOptions: [{ value: 'all', label: '全部' }].concat(CATEGORIES),
+    seasonOptions: [{ value: '', label: '不限' }].concat(SEASONS),
+    styleOptions: [{ value: '', label: '不限' }].concat(STYLES),
+    colorOptions: [{ value: '', label: '不限' }].concat(PRIMARY_COLORS),
+    thicknessOptions: [{ value: '', label: '不限' }].concat(THICKNESSES)
+  },
+
+  onLoad() {
+    let viewMode = 'grid'
+    try {
+      const remembered = appService.getWardrobeView()
+      if (remembered === 'list') viewMode = 'list'
+    } catch (error) {
+      // Storage failure should not block the wardrobe.
+    }
+    this.setData({ viewMode })
   },
 
   onShow() {
-    this.loadItems();
+    this.loadItems()
+  },
+
+  onPullDownRefresh() {
+    this.loadItems().finally(() => wx.stopPullDownRefresh())
   },
 
   async loadItems() {
-    this.setData({ loading: true });
+    this.setData({ state: 'loading', errorMessage: '' })
     try {
-      const items = await wardrobeService.getWardrobe();
-      this.setData({ items, loading: false }, this.refreshFilteredItems);
-    } catch (err) {
-      console.warn("load wardrobe failed", err);
-      this.setData({ loading: false }, this.refreshFilteredItems);
-      wx.showToast({ title: "衣橱加载失败", icon: "none" });
-    }
-  },
-
-  refreshFilteredItems() {
-    const filteredItems = this.data.items.filter((item) => item.type === this.data.activeType);
-    this.setData({ filteredItems });
-  },
-
-  changeType(event) {
-    this.setData({ activeType: event.currentTarget.dataset.type }, this.refreshFilteredItems);
-  },
-
-  openForm() {
-    const activeIndex = TYPES.findIndex((type) => type.value === this.data.activeType);
-    this.setData({
-      showForm: true,
-      typeIndex: activeIndex >= 0 ? activeIndex : 0,
-      seasonIndex: SEASONS.findIndex((season) => season.value === "all"),
-      editingId: "",
-      form: {
-        ...emptyForm(),
-        type: this.data.activeType
-      }
-    });
-  },
-
-  editItem(event) {
-    const id = event.currentTarget.dataset.id;
-    const item = this.data.items.find((candidate) => candidate.id === id);
-    if (!item) return;
-    const typeIndex = TYPES.findIndex((type) => type.value === item.type);
-    const seasonIndex = SEASONS.findIndex((season) => season.value === (item.season || "all"));
-    const tempRange = getTempRange(item);
-    this.setData({
-      showForm: true,
-      editingId: item.id,
-      typeIndex: typeIndex >= 0 ? typeIndex : 0,
-      seasonIndex: seasonIndex >= 0 ? seasonIndex : this.data.seasonIndex,
-      form: {
-        type: item.type,
-        name: item.name,
-        color: item.color || "",
-        style: item.style || "",
-        season: item.season || "all",
-        tempMin: tempRange.min,
-        tempMax: tempRange.max,
-        mainColor: item.mainColor || item.color || "",
-        tagsInput: Array.isArray(item.tags) ? item.tags.join("、") : "",
-        imageUrl: item.imageFileId || item.imageUrl || "",
-        imageFileId: item.imageFileId || ""
-      }
-    });
-  },
-
-  closeForm() {
-    this.setData({ showForm: false, editingId: "", form: emptyForm() });
-  },
-
-  changeFormType(event) {
-    const typeIndex = Number(event.detail.value);
-    this.setData({
-      typeIndex,
-      "form.type": TYPES[typeIndex].value
-    });
-  },
-
-  changeSeason(event) {
-    const seasonIndex = Number(event.detail.value);
-    const season = SEASONS[seasonIndex] || SEASONS[0];
-    const range = DEFAULT_TEMP_RANGES[season.value] || DEFAULT_TEMP_RANGES.all;
-    this.setData({
-      seasonIndex,
-      "form.season": season.value,
-      "form.tempMin": range.min,
-      "form.tempMax": range.max
-    });
-  },
-
-  updateForm(event) {
-    const field = event.currentTarget.dataset.field;
-    this.setData({ [`form.${field}`]: event.detail.value });
-  },
-
-  async chooseImage() {
-    try {
-      await ensurePrivacyAuthorized();
-    } catch (err) {
-      wx.showToast({ title: "同意隐私政策后可选择图片", icon: "none" });
-      return;
-    }
-
-    const handleFile = (file) => {
-      if (!file) return;
-      if (file.size && file.size > 5 * 1024 * 1024) {
-        wx.showToast({ title: "图片不能超过5MB", icon: "none" });
-        return;
-      }
-      this.setData({ "form.imageUrl": file.tempFilePath || file.path || file });
-    };
-
-    const fallbackChooseImage = () => {
-      wx.chooseImage({
-        count: 1,
-        sizeType: ["compressed", "original"],
-        sourceType: ["album", "camera"],
-        success: (res) => {
-          handleFile({
-            tempFilePath: res.tempFilePaths && res.tempFilePaths[0],
-            size: res.tempFiles && res.tempFiles[0] && res.tempFiles[0].size
-          });
-        },
-        fail: (err) => {
-          if (err && err.errMsg && err.errMsg.includes("cancel")) return;
-          console.warn("chooseImage failed", err);
-          wx.showToast({ title: (err && err.errMsg) || "没有选中图片", icon: "none" });
-        }
-      });
-    };
-
-    if (!wx.chooseMedia) {
-      fallbackChooseImage();
-      return;
-    }
-
-    wx.chooseMedia({
-      count: 1,
-      mediaType: ["image"],
-      sourceType: ["album", "camera"],
-      success: (res) => {
-        handleFile(res.tempFiles && res.tempFiles[0]);
-      },
-      fail: (err) => {
-        if (err && err.errMsg && err.errMsg.includes("cancel")) return;
-        console.warn("chooseMedia failed, fallback to chooseImage", err);
-        fallbackChooseImage();
-      }
-    });
-  },
-
-  async saveItem() {
-    const form = {
-      ...this.data.form,
-      name: this.data.form.name.trim(),
-      color: this.data.form.color.trim(),
-      style: this.data.form.style.trim(),
-      season: this.data.form.season || "all",
-      tempRange: {
-        min: Number(this.data.form.tempMin),
-        max: Number(this.data.form.tempMax)
-      },
-      mainColor: (this.data.form.mainColor || this.data.form.color).trim(),
-      tags: splitTags(this.data.form.tagsInput || this.data.form.style)
-    };
-
-    if (!form.name) {
-      wx.showToast({ title: "请填写衣物名称", icon: "none" });
-      return;
-    }
-
-    if (!Number.isFinite(form.tempRange.min) || !Number.isFinite(form.tempRange.max) || form.tempRange.min > form.tempRange.max) {
-      wx.showToast({ title: "请填写有效温度区间", icon: "none" });
-      return;
-    }
-
-    const isEditing = Boolean(this.data.editingId);
-    this.setData({ saving: true });
-    try {
-      const item = isEditing
-        ? await wardrobeService.updateClothing(this.data.editingId, form)
-        : await wardrobeService.saveClothing(form);
+      const result = await appService.listWardrobeItems({ includeDeleted: false })
+      const items = unwrapItems(result)
+        .filter((item) => !item.deletedAt)
+        .map((item) => this.presentItem(item))
+      this.setData({ items, state: 'ready' })
+      this.applyFilters()
+    } catch (error) {
       this.setData({
-        activeType: item.type,
-        showForm: false,
-        editingId: "",
-        form: emptyForm(),
-        saving: false
-      });
-      this.loadItems();
-      wx.showToast({ title: isEditing ? "已更新衣物" : "已加入衣橱", icon: "success" });
-    } catch (err) {
-      console.warn("save wardrobe item failed", err);
-      this.setData({ saving: false });
-      wx.showToast({ title: isEditing ? "更新失败" : "保存失败", icon: "none" });
+        state: 'error',
+        errorMessage: (error && error.message) || '衣橱加载失败，请稍后重试'
+      })
     }
   },
 
-  async analyzeImage() {
-    if (!this.data.form.imageUrl) {
-      wx.showToast({ title: "请先添加图片", icon: "none" });
-      return;
-    }
+  presentItem(item) {
+    const category = normalizeCategory(item.category || item.type, item.name)
+    const seasons = arrayValue(item.seasons || item.season).map((value) => value === 'fall' ? 'autumn' : value)
+    const styles = arrayValue(item.styles || item.style || item.tags).map((value) => {
+      if (STYLES.some((option) => option.value === value)) return value
+      const byLabel = STYLES.find((option) => option.label === value)
+      return byLabel ? byLabel.value : value
+    })
+    const primaryColor = item.primaryColor || item.mainColor || item.color || ''
+    const categoryLabel = labelOf(CATEGORIES, category)
+    const seasonLabels = seasons.map((value) => labelOf(SEASONS, value)).filter(Boolean)
+    const styleLabels = styles.map((value) => labelOf(STYLES, value)).filter(Boolean)
+    return Object.assign({}, item, {
+      id: item.id || item._id,
+      category,
+      seasons,
+      styles,
+      primaryColor,
+      imageUrl: item.imageUrl || item.imageFileId || item.tempFileURL || '',
+      categoryLabel,
+      primaryColorLabel: labelOf(PRIMARY_COLORS, primaryColor),
+      seasonStyleText: seasonLabels.concat(styleLabels).join(' · ')
+    })
+  },
 
-    this.setData({ analyzing: true });
+  onSearchInput(event) {
+    const searchText = event.detail.value || ''
+    this.setData({ searchText })
+    clearTimeout(this.searchTimer)
+    this.searchTimer = setTimeout(() => this.applyFilters(), 300)
+  },
+
+  onCategoryTap(event) {
+    this.setData({ activeCategory: valueOf(event) })
+    this.applyFilters()
+  },
+
+  toggleView() {
+    const viewMode = this.data.viewMode === 'grid' ? 'list' : 'grid'
+    this.setData({ viewMode })
     try {
-      const result = await wardrobeService.analyzeClothing(this.data.form);
-      const nextForm = {
-        ...this.data.form,
-        imageUrl: result.imageFileId || this.data.form.imageUrl,
-        type: result.type || this.data.form.type,
-        name: this.data.form.name || result.name || "",
-        color: this.data.form.color || result.color || "",
-        style: this.data.form.style || result.style || ""
-      };
-      const typeIndex = TYPES.findIndex((type) => type.value === nextForm.type);
-      this.setData({
-        form: nextForm,
-        typeIndex: typeIndex >= 0 ? typeIndex : this.data.typeIndex,
-        analyzing: false
-      });
-      wx.showToast({ title: "分析完成", icon: "success" });
-    } catch (err) {
-      this.setData({ analyzing: false });
-      wx.showToast({ title: "AI分析失败，可手动填写", icon: "none" });
+      appService.setWardrobeView(viewMode)
+    } catch (error) {
+      wx.showToast({ title: '视图偏好暂未记住', icon: 'none' })
     }
   },
 
-  deleteItem(event) {
-    const id = event.currentTarget.dataset.id;
-    const item = this.data.items.find((candidate) => candidate.id === id);
-    if (!item) return;
+  openFilters() {
+    this.setData({
+      filterOpen: true,
+      tempFilters: Object.assign({}, this.data.appliedFilters)
+    })
+  },
+
+  closeFilters() {
+    this.setData({ filterOpen: false })
+  },
+
+  stopPropagation() {},
+
+  onFilterSelect(event) {
+    const field = event.currentTarget.dataset.field
+    const value = valueOf(event)
+    this.setData({ [`tempFilters.${field}`]: value })
+  },
+
+  resetFilters() {
+    this.setData({
+      tempFilters: { season: '', style: '', primaryColor: '', thickness: '' }
+    })
+  },
+
+  confirmFilters() {
+    const appliedFilters = Object.assign({}, this.data.tempFilters)
+    const hasActiveFilters = Object.keys(appliedFilters).some((key) => Boolean(appliedFilters[key]))
+    this.setData({ appliedFilters, hasActiveFilters, filterOpen: false })
+    this.applyFilters()
+  },
+
+  applyFilters() {
+    const keyword = (this.data.searchText || '').trim().toLowerCase()
+    const category = this.data.activeCategory
+    const filters = this.data.appliedFilters
+    const visibleItems = this.data.items.filter((item) => {
+      if (category !== 'all' && item.category !== category) return false
+      if (filters.season && !(item.seasons || []).includes(filters.season)) return false
+      if (filters.style && !(item.styles || []).includes(filters.style)) return false
+      if (filters.primaryColor && item.primaryColor !== filters.primaryColor) return false
+      if (filters.thickness && item.thickness !== filters.thickness) return false
+      if (!keyword) return true
+      const searchable = [
+        item.name,
+        item.category,
+        item.categoryLabel,
+        item.primaryColor,
+        item.primaryColorLabel,
+        item.note,
+        ...(item.styles || []),
+        ...((item.styles || []).map((value) => labelOf(STYLES, value)))
+      ].filter(Boolean).join(' ').toLowerCase()
+      return searchable.includes(keyword)
+    })
+    this.setData({ visibleItems })
+  },
+
+  navigateToUpload() {
+    wx.navigateTo({ url: '/pages/item-upload/item-upload' })
+  },
+
+  navigateToProfile() {
+    wx.navigateTo({ url: '/pages/profile/index' })
+  },
+
+  openItem(event) {
+    const itemId = event.currentTarget.dataset.id
+    wx.navigateTo({ url: `/pages/item-detail/item-detail?itemId=${encodeURIComponent(itemId)}` })
+  },
+
+  openMore(event) {
+    const itemId = event.currentTarget.dataset.id
+    const item = this.data.items.find((candidate) => candidate.id === itemId)
+    if (!item) return
+    wx.showActionSheet({
+      itemList: ['查看详情', '编辑信息', '修改分类', '删除'],
+      success: ({ tapIndex }) => {
+        if (tapIndex === 0) this.goToDetail(item.id)
+        if (tapIndex === 1) this.goToEdit(item.id)
+        if (tapIndex === 2) this.goToEdit(item.id, true)
+        if (tapIndex === 3) this.confirmDelete(item)
+      }
+    })
+  },
+
+  goToDetail(itemId) {
+    wx.navigateTo({ url: `/pages/item-detail/item-detail?itemId=${encodeURIComponent(itemId)}` })
+  },
+
+  goToEdit(itemId, categoryOnly) {
+    const suffix = categoryOnly ? '&focus=category' : ''
+    wx.navigateTo({ url: `/pages/item-edit/item-edit?itemId=${encodeURIComponent(itemId)}${suffix}` })
+  },
+
+  confirmDelete(item) {
     wx.showModal({
-      title: "删除衣物",
-      content: "删除后暂时不能恢复，确认删除吗？",
-      success: async (res) => {
-        if (!res.confirm) return;
+      title: '确认删除这件单品？',
+      content: '删除后将不再出现在衣橱和新搭配中，历史穿搭仍保留原来的图片快照。',
+      confirmText: '删除',
+      confirmColor: '#d85d70',
+      success: async ({ confirm }) => {
+        if (!confirm) return
+        wx.showLoading({ title: '删除中', mask: true })
         try {
-          const items = await wardrobeService.deleteClothing(item);
-          this.setData({ items }, this.refreshFilteredItems);
-          wx.showToast({ title: "已删除衣物", icon: "success" });
-        } catch (err) {
-          console.warn("delete wardrobe item failed", err);
-          wx.showToast({ title: "删除失败，请重试", icon: "none" });
+          const result = await appService.deleteWardrobeItem(item.id)
+          if (result.syncStatus === 'synced') wx.showToast({ title: '已从衣橱删除', icon: 'success' })
+          else wx.showToast({ title: '本机已删除，云端待同步', icon: 'none' })
+          await this.loadItems()
+        } catch (error) {
+          wx.showToast({ title: (error && error.message) || '删除失败', icon: 'none' })
+        } finally {
+          wx.hideLoading()
         }
       }
-    });
+    })
   }
-});
+})

@@ -1,98 +1,142 @@
 <view class="page">
-  <view class="wardrobe-header">
+  <view class="hero">
     <view>
-      <text class="section-title header-title">我的衣橱</text>
-      <text class="header-subtitle">已收纳 {{items.length}} 件衣物</text>
+      <view class="title-row">
+        <text class="title">我的衣橱</text>
+        <text class="spark">✦</text>
+      </view>
+      <text class="subtitle">按分类整理你的单品</text>
     </view>
-    <button class="primary-button add-button" bindtap="openForm">添加</button>
+    <view class="avatar" role="button" aria-label="进入个人中心" bindtap="navigateToProfile">♥</view>
   </view>
 
-  <view class="tabs">
-    <button wx:for="{{types}}" wx:key="value" class="tab {{activeType === item.value ? 'active' : ''}}" data-type="{{item.value}}" bindtap="changeType">
-      {{item.label}}
+  <view class="toolbar">
+    <view class="search-box">
+      <text class="search-icon">⌕</text>
+      <input class="search-input" placeholder="搜索我的衣物" value="{{searchText}}" bindinput="onSearchInput" />
+    </view>
+    <button class="tool-button" bindtap="toggleView">
+      <text class="tool-icon">{{viewMode === 'grid' ? '☷' : '▦'}}</text>
+      <text>视图</text>
+    </button>
+    <button class="tool-button {{hasActiveFilters ? 'tool-active' : ''}}" bindtap="openFilters">
+      <text class="tool-icon">▽</text>
+      <text>筛选</text>
+      <view wx:if="{{hasActiveFilters}}" class="active-dot"></view>
     </button>
   </view>
 
-  <view wx:if="{{showForm}}" class="card form-card">
-    <text class="form-title">{{editingId ? '编辑衣物' : '添加衣物'}}</text>
-    <view class="form-row">
-      <text class="label">分类</text>
-      <picker range="{{typeLabels}}" value="{{typeIndex}}" bindchange="changeFormType">
-        <view class="picker-value">{{typeLabels[typeIndex]}}</view>
-      </picker>
+  <scroll-view class="category-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+    <view class="category-row">
+      <button
+        wx:for="{{categoryOptions}}"
+        wx:key="value"
+        class="category-chip {{activeCategory === item.value ? 'selected' : ''}}"
+        data-value="{{item.value}}"
+        bindtap="onCategoryTap"
+      >{{item.label}}</button>
     </view>
-    <view class="form-row">
-      <text class="label">名称</text>
-      <input class="input" value="{{form.name}}" maxlength="20" placeholder="如：白色宽松T恤" data-field="name" bindinput="updateForm" />
-    </view>
-    <view class="form-row">
-      <text class="label">颜色</text>
-      <input class="input" value="{{form.color}}" maxlength="12" placeholder="如：白色" data-field="color" bindinput="updateForm" />
-    </view>
-    <view class="form-row">
-      <text class="label">风格</text>
-      <input class="input" value="{{form.style}}" maxlength="16" placeholder="如：通勤、休闲" data-field="style" bindinput="updateForm" />
-    </view>
-    <view class="form-row">
-      <text class="label">季节</text>
-      <picker range="{{seasonLabels}}" value="{{seasonIndex}}" bindchange="changeSeason">
-        <view class="picker-value">{{seasonLabels[seasonIndex]}}</view>
-      </picker>
-    </view>
-    <view class="form-row">
-      <text class="label">温度</text>
-      <view class="temp-inputs">
-        <input class="input temp-input" type="number" value="{{form.tempMin}}" data-field="tempMin" bindinput="updateForm" />
-        <text class="temp-separator">至</text>
-        <input class="input temp-input" type="number" value="{{form.tempMax}}" data-field="tempMax" bindinput="updateForm" />
-        <text class="temp-unit">℃</text>
+  </scroll-view>
+
+  <view class="summary-card">
+    <view class="summary-left">
+      <view class="hanger">♡</view>
+      <view>
+        <text class="summary-label">已收纳</text>
+        <view><text class="summary-number">{{items.length}}</text><text class="summary-unit"> 件</text></view>
       </view>
     </view>
-    <view class="form-row">
-      <text class="label">主色</text>
-      <input class="input" value="{{form.mainColor}}" maxlength="12" placeholder="默认使用颜色" data-field="mainColor" bindinput="updateForm" />
-    </view>
-    <view class="form-row">
-      <text class="label">标签</text>
-      <input class="input" value="{{form.tagsInput}}" maxlength="36" placeholder="如：通勤、简约" data-field="tagsInput" bindinput="updateForm" />
-    </view>
-    <view class="image-picker" bindtap="chooseImage">
-      <image wx:if="{{form.imageUrl}}" class="preview" src="{{form.imageUrl}}" mode="aspectFill" />
-      <view wx:else class="image-empty">
-        <text class="image-empty-title">添加衣物图片</text>
-        <text class="image-empty-subtitle">点击选择相册或拍照</text>
+    <button class="upload-button" bindtap="navigateToUpload">
+      <text class="upload-main">＋ 上传新单品</text>
+      <text class="upload-sub">支持图片识别分类</text>
+    </button>
+  </view>
+
+  <view wx:if="{{state === 'loading'}}" class="state-card">
+    <view class="spinner"></view>
+    <text class="state-title">正在打开你的衣橱…</text>
+  </view>
+
+  <view wx:elif="{{state === 'error'}}" class="state-card">
+    <text class="state-icon">！</text>
+    <text class="state-title">{{errorMessage}}</text>
+    <button class="state-button" bindtap="loadItems">重试</button>
+  </view>
+
+  <view wx:elif="{{visibleItems.length === 0}}" class="state-card">
+    <text class="state-icon">♡</text>
+    <text class="state-title">{{items.length === 0 ? '衣橱里还没有单品' : (searchText ? '没有找到相关单品' : '没有找到符合条件的单品')}}</text>
+    <text class="state-copy">{{items.length === 0 ? '上传第一件衣服开始整理吧' : '试试调整搜索词、分类或筛选条件'}}</text>
+    <button wx:if="{{items.length === 0}}" class="state-button" bindtap="navigateToUpload">上传新单品</button>
+    <button wx:else class="state-button secondary" bindtap="openFilters">调整筛选</button>
+  </view>
+
+  <view wx:elif="{{viewMode === 'grid'}}" class="item-grid">
+    <view wx:for="{{visibleItems}}" wx:key="id" class="item-card" data-id="{{item.id}}" bindtap="openItem">
+      <button class="more-button" catchtap="openMore" data-id="{{item.id}}" aria-label="更多操作">•••</button>
+      <view class="image-wrap">
+        <image wx:if="{{item.imageUrl}}" class="item-image" src="{{item.imageUrl}}" mode="aspectFit" lazy-load />
+        <view wx:else class="image-placeholder">暂无图片</view>
       </view>
-    </view>
-    <button class="secondary-button analyze-button" loading="{{analyzing}}" bindtap="analyzeImage">AI 分析图片</button>
-    <view class="form-actions">
-      <button class="secondary-button" bindtap="closeForm">取消</button>
-      <button class="primary-button" loading="{{saving}}" bindtap="saveItem">{{editingId ? '保存修改' : '保存衣物'}}</button>
+      <text class="item-name">{{item.name}}</text>
+      <text class="item-category">{{item.categoryLabel}}</text>
     </view>
   </view>
 
-  <view wx:if="{{loading}}" class="card empty-card">
-    <text class="empty-title">正在同步衣橱</text>
-    <text class="empty-subtitle">稍等一下，正在读取云端衣物。</text>
-  </view>
-
-  <view wx:elif="{{filteredItems.length}}" class="grid">
-    <view wx:for="{{filteredItems}}" wx:key="id" class="item-card">
-      <image wx:if="{{item.imageUrl}}" class="item-image" src="{{item.imageUrl}}" mode="aspectFill" />
-      <view wx:else class="item-image item-placeholder">{{item.name}}</view>
-      <view class="item-info">
-        <text class="item-name">{{item.name}}</text>
-        <text class="item-meta">{{item.mainColor || item.color || '未填颜色'}} · {{item.style || '日常'}}</text>
+  <view wx:else class="item-list">
+    <view wx:for="{{visibleItems}}" wx:key="id" class="list-card" data-id="{{item.id}}" bindtap="openItem">
+      <view class="list-image-wrap">
+        <image wx:if="{{item.imageUrl}}" class="list-image" src="{{item.imageUrl}}" mode="aspectFit" lazy-load />
+        <view wx:else class="image-placeholder small">暂无图片</view>
       </view>
-      <view class="item-actions">
-        <button class="edit-button" data-id="{{item.id}}" bindtap="editItem">编辑</button>
-        <button class="delete-button" data-id="{{item.id}}" bindtap="deleteItem">删除</button>
+      <view class="list-content">
+        <text class="list-name">{{item.name}}</text>
+        <text class="list-meta">{{item.categoryLabel}}{{item.primaryColorLabel ? ' · ' + item.primaryColorLabel : ''}}</text>
+        <text class="list-tags">{{item.seasonStyleText || '暂无标签'}}</text>
       </view>
+      <button class="more-button list-more" catchtap="openMore" data-id="{{item.id}}" aria-label="更多操作">•••</button>
     </view>
   </view>
 
-  <view wx:else class="card empty-card">
-    <text class="empty-title">这个分类还是空的</text>
-    <text class="empty-subtitle">先添加几件常穿单品，推荐页就能开始组合。</text>
-    <button class="primary-button" bindtap="openForm">添加第一件</button>
+  <view wx:if="{{filterOpen}}" class="mask" bindtap="closeFilters">
+    <view class="filter-sheet" catchtap="stopPropagation">
+      <view class="sheet-handle"></view>
+      <view class="sheet-header">
+        <text class="sheet-title">筛选单品</text>
+        <button class="close-button" bindtap="closeFilters">×</button>
+      </view>
+
+      <scroll-view class="filter-scroll" scroll-y>
+        <view class="filter-group">
+          <text class="filter-label">季节</text>
+          <view class="option-row">
+            <button wx:for="{{seasonOptions}}" wx:key="value" class="option-chip {{tempFilters.season === item.value ? 'selected' : ''}}" data-field="season" data-value="{{item.value}}" bindtap="onFilterSelect">{{item.label}}</button>
+          </view>
+        </view>
+        <view class="filter-group">
+          <text class="filter-label">风格</text>
+          <view class="option-row">
+            <button wx:for="{{styleOptions}}" wx:key="value" class="option-chip {{tempFilters.style === item.value ? 'selected' : ''}}" data-field="style" data-value="{{item.value}}" bindtap="onFilterSelect">{{item.label}}</button>
+          </view>
+        </view>
+        <view class="filter-group">
+          <text class="filter-label">主颜色</text>
+          <view class="option-row">
+            <button wx:for="{{colorOptions}}" wx:key="value" class="option-chip color-chip {{tempFilters.primaryColor === item.value ? 'selected' : ''}}" data-field="primaryColor" data-value="{{item.value}}" bindtap="onFilterSelect">{{item.label}}</button>
+          </view>
+        </view>
+        <view class="filter-group">
+          <text class="filter-label">厚度</text>
+          <view class="option-row">
+            <button wx:for="{{thicknessOptions}}" wx:key="value" class="option-chip {{tempFilters.thickness === item.value ? 'selected' : ''}}" data-field="thickness" data-value="{{item.value}}" bindtap="onFilterSelect">{{item.label}}</button>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="sheet-actions">
+        <button class="reset-button" bindtap="resetFilters">重置</button>
+        <button class="confirm-button" bindtap="confirmFilters">查看结果</button>
+      </view>
+    </view>
   </view>
 </view>

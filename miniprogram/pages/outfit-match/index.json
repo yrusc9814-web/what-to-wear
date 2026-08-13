@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "匹配穿搭",
+  "navigationBarBackgroundColor": "#fff9f8",
+  "navigationBarTextStyle": "black",
+  "backgroundColor": "#fff9f8",
+  "backgroundTextStyle": "dark",
+  "enablePullDownRefresh": true
+}

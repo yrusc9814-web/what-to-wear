@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "单品详情",
+  "navigationBarBackgroundColor": "#fffaf9",
+  "navigationBarTextStyle": "black",
+  "backgroundColor": "#fffaf9",
+  "enablePullDownRefresh": true
+}

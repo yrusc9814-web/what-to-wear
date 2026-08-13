@@ -33,7 +33,7 @@
 说明：
 
 - 前端读取也可以完全走 `getOutfitRecords` 云函数。
-- 写入、删除分别由 `saveOutfit`、`deleteOutfitRecord` 执行。
+- 写入、更新、删除分别由 `saveOutfit`、`updateSavedOutfit`、`deleteOutfitRecord` 执行。
 
 ## 必查项
 

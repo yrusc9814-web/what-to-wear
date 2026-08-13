@@ -1,0 +1,79 @@
+<view class="page">
+  <view class="intro">
+    <text class="page-title">选择城市</text>
+    <text class="page-description">城市改变后，首页的温度、天气和穿搭建议将同步更新</text>
+  </view>
+
+  <view class="search-box">
+    <text class="search-icon">⌕</text>
+    <input
+      class="search-input"
+      value="{{keyword}}"
+      placeholder="搜索城市，如上海"
+      placeholder-class="search-placeholder"
+      confirm-type="search"
+      bindinput="onKeywordInput"
+      bindconfirm="onSearch"
+    />
+    <button wx:if="{{keyword}}" class="search-button" bindtap="onSearch">搜索</button>
+  </view>
+
+  <view class="location-card">
+    <view class="location-copy">
+      <view class="location-title">
+        <text class="pin-dot">●</text>
+        <text>当前城市</text>
+      </view>
+      <text wx:if="{{currentState === 'loading'}}" class="location-value location-value--muted">正在读取…</text>
+      <text wx:elif="{{currentLocation}}" class="location-value">{{currentLocation.cityName}}</text>
+      <text wx:else class="location-value location-value--muted">尚未选择</text>
+    </view>
+    <button class="relocate-button" loading="{{locating}}" disabled="{{locating}}" bindtap="onRelocate">
+      {{locating ? '定位中' : '重新定位'}}
+    </button>
+  </view>
+
+  <view wx:if="{{errorMessage}}" class="message-card message-card--error">
+    <text>{{errorMessage}}</text>
+  </view>
+
+  <view class="result-section">
+    <text class="section-title">{{keyword ? '搜索结果' : '手动选择'}}</text>
+
+    <view wx:if="{{searchState === 'idle'}}" class="state-card">
+      <view class="state-icon">⌕</view>
+      <text class="state-title">输入城市名称</text>
+      <text class="state-description">你可以搜索并选择城市，也可重新获取当前位置</text>
+    </view>
+
+    <view wx:elif="{{searchState === 'loading'}}" class="state-card">
+      <view class="loading-ring"></view>
+      <text class="state-title">正在搜索…</text>
+    </view>
+
+    <view wx:elif="{{searchState === 'error'}}" class="state-card">
+      <view class="state-icon state-icon--error">!</view>
+      <text class="state-title">搜索失败</text>
+      <text class="state-description">{{errorMessage}}</text>
+      <button class="secondary-button" bindtap="onRetrySearch">重试</button>
+    </view>
+
+    <view wx:elif="{{results.length}}" class="city-list">
+      <button wx:for="{{results}}" wx:key="cityName" class="city-row" data-index="{{index}}" bindtap="onCitySelect">
+        <view>
+          <text class="city-name">{{item.cityName}}</text>
+          <text wx:if="{{item.district}}" class="city-subtitle">{{item.district}}</text>
+        </view>
+        <text class="row-arrow">›</text>
+      </button>
+    </view>
+
+    <view wx:else class="state-card">
+      <view class="state-icon">○</view>
+      <text class="state-title">没有找到该城市</text>
+      <text class="state-description">请检查城市名称后重试</text>
+    </view>
+  </view>
+
+  <view class="safe-bottom"></view>
+</view>

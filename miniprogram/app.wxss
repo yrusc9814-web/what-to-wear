@@ -1,13 +1,13 @@
 page {
   min-height: 100%;
-  background: #fff8f5;
-  color: #2f2624;
+  background: #fff9f8;
+  color: #3b2d2f;
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
 }
 
 .page {
   min-height: 100vh;
-  padding: 32rpx;
+  padding: 32rpx 30rpx calc(48rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -18,23 +18,33 @@ page {
 }
 
 .card {
-  border-radius: 16rpx;
-  background: #ffffff;
-  box-shadow: 0 10rpx 30rpx rgba(79, 52, 45, 0.08);
+  border: 1rpx solid #f4d8dd;
+  border-radius: 32rpx;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14rpx 36rpx rgba(221, 112, 141, 0.08);
   padding: 28rpx;
 }
 
 .primary-button {
-  border-radius: 14rpx;
-  background: #b45f6b;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #ff789d, #ff4f7d);
   color: #ffffff;
   font-weight: 600;
 }
 
 .secondary-button {
-  border-radius: 14rpx;
-  background: #f3e8e3;
-  color: #6f5550;
+  border: 1rpx solid #f3d9df;
+  border-radius: 999rpx;
+  background: #fff5f7;
+  color: #a45c70;
+}
+
+button::after {
+  border: none;
+}
+
+image {
+  display: block;
 }
 
 .empty-card {

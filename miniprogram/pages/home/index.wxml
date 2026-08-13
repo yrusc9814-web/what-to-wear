@@ -1,0 +1,161 @@
+<view class="page">
+  <view class="safe-top"></view>
+
+  <view class="header">
+    <view>
+      <view class="brand">小衣橱 <text class="sparkle">✦</text></view>
+      <view class="subtitle">今日穿搭灵感</view>
+    </view>
+    <button class="avatar-button" bindtap="onAvatarTap" aria-label="打开个人中心">
+      <image wx:if="{{user.avatarUrl}}" class="avatar" src="{{user.avatarUrl}}" mode="aspectFill"></image>
+      <view wx:else class="avatar avatar-placeholder">
+        <view class="avatar-head"></view>
+        <view class="avatar-body"></view>
+      </view>
+    </button>
+  </view>
+
+  <view class="hero-card">
+    <view class="hero-copy">
+      <text class="date">{{dateText}}</text>
+      <text class="hero-title">开始今天的搭配</text>
+      <text wx:if="{{todayOutfit}}" class="today-label">今日穿搭 · {{todayOutfit.title}}</text>
+      <text wx:else class="hero-description">从你的衣橱中挑选一套今天想穿的搭配</text>
+      <button class="primary-button hero-button" bindtap="onQuickStart">
+        快速开始搭配 <text class="button-arrow">→</text>
+      </button>
+    </view>
+
+    <view class="hero-preview">
+      <block wx:if="{{todayState === 'loading'}}">
+        <view class="preview-loading"></view>
+      </block>
+      <view wx:elif="{{todayState === 'error'}}" class="preview-empty">
+        <text>今日穿搭加载失败</text>
+        <button class="text-button preview-retry" bindtap="onRetryToday">重试</button>
+      </view>
+      <block wx:elif="{{todayOutfit}}">
+        <image wx:if="{{todayOutfit.previewImageUrl}}" class="outfit-image" src="{{todayOutfit.previewImageUrl}}" mode="aspectFit"></image>
+        <view wx:elif="{{todayOutfit.previewItems.length}}" class="outfit-composition outfit-composition--hero">
+          <image wx:for="{{todayOutfit.previewItems}}" wx:key="slot" class="preview-item preview-item-{{item.slot}}" src="{{item.imageUrl}}" mode="aspectFit"></image>
+        </view>
+        <view wx:else class="preview-empty">
+          <view class="hanger-icon">⌒</view>
+          <text>今日穿搭</text>
+        </view>
+      </block>
+      <view wx:else class="preview-empty">
+        <view class="hanger-icon">⌒</view>
+        <text>今天还没有穿搭</text>
+      </view>
+    </view>
+
+    <view class="hero-weather">
+      <block wx:if="{{weatherState === 'ready'}}">
+        <image wx:if="{{weather.iconUrl}}" class="hero-weather-image" src="{{weather.iconUrl}}" mode="aspectFit"></image>
+        <text wx:else class="hero-weather-icon">{{weather.iconText}}</text>
+        <text class="temperature">{{weather.currentTemp === null ? '--' : weather.currentTemp}}°C</text>
+        <text class="condition">{{weather.condition || '--'}}</text>
+      </block>
+      <block wx:else>
+        <text class="hero-weather-icon hero-weather-icon--muted">○</text>
+        <text class="temperature temperature--muted">--°C</text>
+        <text class="condition">{{weatherState === 'loading' ? '获取中' : '暂无天气'}}</text>
+      </block>
+      <button class="city-button" bindtap="onCityTap">
+        <text class="pin">●</text>
+        <text>{{location.cityName || '选择城市'}}</text>
+        <text class="chevron">›</text>
+      </button>
+    </view>
+  </view>
+
+  <view class="weather-card">
+    <view class="weather-symbol-wrap">
+      <image wx:if="{{weatherState === 'ready' && weather.iconUrl}}" class="weather-symbol-image" src="{{weather.iconUrl}}" mode="aspectFit"></image>
+      <text wx:else class="weather-symbol">{{weatherState === 'ready' ? weather.iconText : '○'}}</text>
+    </view>
+    <view class="weather-copy">
+      <text class="section-card-title">天气建议</text>
+      <block wx:if="{{weatherState === 'ready'}}">
+        <text class="weather-line">{{weather.condition}}，气温 {{weather.minTemp === null ? '--' : weather.minTemp}}~{{weather.maxTemp === null ? '--' : weather.maxTemp}}°C</text>
+        <text class="weather-advice">{{weather.outfitAdvice}}</text>
+      </block>
+      <block wx:elif="{{weatherState === 'loading'}}">
+        <text class="state-copy">正在获取天气建议…</text>
+      </block>
+      <block wx:else>
+        <text class="state-copy state-copy--error">{{weatherError}}</text>
+        <button class="text-button" bindtap="onRetryWeather">重试</button>
+      </block>
+    </view>
+    <view class="shirt-decoration">
+      <view class="shirt-body"></view>
+    </view>
+  </view>
+
+  <view class="section-heading">
+    <text class="section-title">最近保存穿搭</text>
+    <button class="link-button" bindtap="onViewAll">全部 <text>›</text></button>
+  </view>
+
+  <view wx:if="{{recentState === 'loading'}}" class="recent-grid">
+    <view wx:for="{{loadingCards}}" wx:key="*this" class="recent-card recent-card--loading"></view>
+  </view>
+
+  <view wx:elif="{{recentState === 'error'}}" class="inline-state">
+    <text>最近穿搭加载失败</text>
+    <button class="text-button" bindtap="onRetryRecent">重试</button>
+  </view>
+
+  <view wx:elif="{{recentOutfits.length}}" class="recent-grid">
+    <button wx:for="{{recentOutfits}}" wx:key="id" class="recent-card" data-id="{{item.id}}" bindtap="onOutfitTap">
+      <view class="recent-preview">
+        <image wx:if="{{item.previewImageUrl}}" class="outfit-image" src="{{item.previewImageUrl}}" mode="aspectFit"></image>
+        <view wx:elif="{{item.previewItems.length}}" class="outfit-composition outfit-composition--mini">
+          <image wx:for="{{item.previewItems}}" wx:for-item="piece" wx:key="slot" class="preview-item preview-item-{{piece.slot}}" src="{{piece.imageUrl}}" mode="aspectFit"></image>
+        </view>
+        <view wx:else class="mini-preview-empty">⌒</view>
+      </view>
+      <text class="recent-name">{{item.title}}</text>
+      <text class="recent-date">{{item.savedDate}}</text>
+    </button>
+  </view>
+
+  <view wx:else class="inline-state inline-state--empty">
+    <view class="empty-icon">⌒</view>
+    <text class="empty-title">还没有保存穿搭</text>
+    <text class="empty-description">搭配并保存后，最新的穿搭会出现在这里</text>
+    <button class="secondary-button" bindtap="onQuickStart">开始搭配</button>
+  </view>
+
+  <view class="smart-card">
+    <view class="smart-heading">
+      <view>
+        <view class="smart-title">智能穿搭建议 <text class="sparkle sparkle--small">✦</text></view>
+        <text class="smart-subtitle">根据已保存穿搭，按季节和风格筛选合适搭配</text>
+      </view>
+      <view class="smart-decoration">⌒</view>
+    </view>
+
+    <view class="filter-row">
+      <text class="filter-label">季节</text>
+      <view class="filter-options filter-options--season">
+        <button wx:for="{{seasonOptions}}" wx:key="value" class="filter-chip {{filters.season === item.value ? 'filter-chip--active' : ''}}" data-value="{{item.value}}" bindtap="onSeasonSelect">{{item.label}}</button>
+      </view>
+    </view>
+
+    <view class="filter-row">
+      <text class="filter-label">风格</text>
+      <view class="filter-options">
+        <button wx:for="{{styleOptions}}" wx:key="value" class="filter-chip {{filters.style === item.value ? 'filter-chip--active' : ''}}" data-value="{{item.value}}" bindtap="onStyleSelect">{{item.label}}</button>
+      </view>
+    </view>
+
+    <view class="smart-action-row">
+      <button class="primary-button match-button" bindtap="onViewMatches">查看匹配穿搭 <text class="button-arrow">→</text></button>
+    </view>
+  </view>
+
+  <view class="bottom-space"></view>
+</view>

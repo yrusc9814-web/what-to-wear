@@ -17,7 +17,7 @@ Key 需要开通 WebService API，并确认地址解析/逆地址解析能力可
 
 ## 本地调试
 
-在微信开发者工具中打开项目根目录 `D:\chuanda-project`。当前前端已绑定云环境：
+在微信开发者工具中打开当前项目根目录。当前前端已绑定云环境：
 
 ```text
 cloud1-d1gjweewr2740aa1f
@@ -34,10 +34,12 @@ cloud1-d1gjweewr2740aa1f
 - `getWardrobe`：读取衣橱。
 - `updateClothing`：更新衣物。
 - `deleteClothing`：软删除衣物。
-- `analyzeClothing`：衣物图片 AI 标签分析，占位支持 `DASHSCOPE_API_KEY` 或 `QWEN_VL_API_KEY` 环境变量。
+- `analyzeClothing`：通义千问 VL 衣物图片识别，正式使用需配置 `DASHSCOPE_API_KEY`（兼容 `QWEN_VL_API_KEY`），可用 `QWEN_API_URL`、`QWEN_VL_MODEL` 覆盖默认端点与模型。
 - `saveOutfit`：保存穿搭记录。
 - `getOutfitRecords`：读取穿搭记录。
 - `deleteOutfitRecord`：软删除穿搭记录。
+- `updateSavedOutfit`：更新已有穿搭，校验并保留五槽历史快照。
+- `getUserIdentity`：返回当前 OpenID，用于本地缓存按用户隔离。
 - `clearUserData`：用户主动清除数据时，软删除衣橱与穿搭记录。
 
 ## 数据库集合

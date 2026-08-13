@@ -1,0 +1,51 @@
+<view class="page">
+  <view class="intro-card">
+    <view class="intro-icon">✦</view>
+    <view class="intro-copy">
+      <text class="title">选一套历史搭配</text>
+      <text class="subtitle">从你保存过的组合中寻找灵感，点击后先查看详情</text>
+    </view>
+  </view>
+
+  <view wx:if="{{state === 'loading'}}" class="history-list">
+    <view wx:for="{{loadingCards}}" wx:key="*this" class="history-card skeleton"></view>
+  </view>
+
+  <view wx:elif="{{state === 'error'}}" class="state-card">
+    <view class="state-icon">!</view>
+    <text class="state-title">暂时无法加载历史搭配</text>
+    <text class="state-copy">{{errorMessage}}</text>
+    <button class="secondary-button" bindtap="loadOutfits">重试</button>
+  </view>
+
+  <view wx:elif="{{!outfits.length}}" class="state-card">
+    <view class="empty-hanger">⌒</view>
+    <text class="state-title">还没有保存过搭配</text>
+    <text class="state-copy">第一套就从你现在的衣橱开始</text>
+    <button class="primary-button" bindtap="goOutfit">去搭配单品</button>
+  </view>
+
+  <view wx:else class="history-list">
+    <button wx:for="{{outfits}}" wx:key="id" class="history-card" data-id="{{item.id}}" bindtap="openOutfit">
+      <view class="preview">
+        <image wx:if="{{item.previewImageUrl}}" class="preview-cover" src="{{item.previewImageUrl}}" mode="aspectFit"></image>
+        <block wx:else>
+          <image wx:for="{{item.layers}}" wx:for-item="piece" wx:key="slot" class="layer layer-{{piece.slot}}" src="{{piece.imageUrl}}" mode="aspectFit"></image>
+          <view wx:if="{{!item.layers.length}}" class="preview-empty">⌒</view>
+        </block>
+      </view>
+      <view class="card-copy">
+        <text class="outfit-title">{{item.title}}</text>
+        <view class="tag-row">
+          <text wx:if="{{item.seasonLabel}}">{{item.seasonLabel}}</text>
+          <text wx:if="{{item.styleLabel}}">{{item.styleLabel}}</text>
+        </view>
+        <text class="saved-date">保存于 {{item.savedDate}}</text>
+      </view>
+      <text class="chevron">›</text>
+    </button>
+  </view>
+
+  <button wx:if="{{state === 'ready' && outfits.length}}" class="go-outfit-button" bindtap="goOutfit">去搭配单品</button>
+  <view class="bottom-space"></view>
+</view>

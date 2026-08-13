@@ -1,11 +1,20 @@
 {
   "pages": [
-    "pages/index/index",
+    "pages/home/index",
     "pages/wardrobe/wardrobe",
-    "pages/recommendation/recommendation"
+    "pages/outfit/index",
+    "pages/city-select/index",
+    "pages/profile/index",
+    "pages/outfit-match/index",
+    "pages/item-upload/item-upload",
+    "pages/item-detail/item-detail",
+    "pages/item-edit/item-edit",
+    "pages/saved-outfits/index",
+    "pages/outfit-history/index",
+    "pages/outfit-detail/index"
   ],
   "window": {
-    "navigationBarTitleText": "穿搭日记",
+    "navigationBarTitleText": "小衣橱",
     "navigationBarBackgroundColor": "#fff8f5",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#fff8f5"
@@ -17,7 +26,7 @@
     "borderStyle": "white",
     "list": [
       {
-        "pagePath": "pages/index/index",
+        "pagePath": "pages/home/index",
         "text": "首页",
         "iconPath": "assets/tabbar/home.png",
         "selectedIconPath": "assets/tabbar/home-active.png"
@@ -29,8 +38,8 @@
         "selectedIconPath": "assets/tabbar/wardrobe-active.png"
       },
       {
-        "pagePath": "pages/recommendation/recommendation",
-        "text": "推荐",
+        "pagePath": "pages/outfit/index",
+        "text": "穿搭",
         "iconPath": "assets/tabbar/recommendation.png",
         "selectedIconPath": "assets/tabbar/recommendation-active.png"
       }

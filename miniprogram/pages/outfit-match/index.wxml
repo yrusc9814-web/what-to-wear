@@ -1,0 +1,76 @@
+<view class="page">
+  <view class="intro-card">
+    <view>
+      <text class="page-title">匹配穿搭</text>
+      <text class="page-description">从你已保存的穿搭中，找到符合当前条件的搭配</text>
+    </view>
+    <view class="hanger-decoration">⌒</view>
+  </view>
+
+  <view class="filter-summary">
+    <view class="summary-copy">
+      <text class="summary-label">筛选条件</text>
+      <view class="summary-tags">
+        <text class="summary-tag">{{seasonLabel}}季</text>
+        <text class="summary-tag">{{styleLabel}}风格</text>
+      </view>
+    </view>
+    <button class="adjust-button" bindtap="onAdjustFilters">调整筛选</button>
+  </view>
+
+  <view wx:if="{{state === 'loading'}}" class="state-card">
+    <view class="loading-ring"></view>
+    <text class="state-title">正在查找匹配穿搭…</text>
+    <text class="state-description">只会筛选你已经保存的搭配</text>
+  </view>
+
+  <view wx:elif="{{state === 'error'}}" class="state-card">
+    <view class="state-icon state-icon--error">!</view>
+    <text class="state-title">加载失败</text>
+    <text class="state-description">{{errorMessage}}</text>
+    <button class="secondary-button" bindtap="onRetry">重试</button>
+  </view>
+
+  <block wx:elif="{{results.length}}">
+    <view class="result-heading">
+      <text class="result-title">找到 {{results.length}} 套穿搭</text>
+      <text class="result-hint">点击查看详情</text>
+    </view>
+
+    <view class="outfit-list">
+      <button wx:for="{{results}}" wx:key="id" class="outfit-card" data-id="{{item.id}}" bindtap="onOutfitTap">
+        <view class="outfit-preview">
+          <image wx:if="{{item.previewImageUrl}}" class="outfit-image" src="{{item.previewImageUrl}}" mode="aspectFit"></image>
+          <view wx:elif="{{item.previewItems.length}}" class="outfit-composition">
+            <image wx:for="{{item.previewItems}}" wx:for-item="piece" wx:key="slot" class="preview-item preview-item-{{piece.slot}}" src="{{piece.imageUrl}}" mode="aspectFit"></image>
+          </view>
+          <view wx:else class="preview-empty">⌒</view>
+        </view>
+        <view class="outfit-copy">
+          <text class="outfit-title">{{item.title}}</text>
+          <view class="outfit-tags">
+            <text class="outfit-tag">{{item.seasonLabel}}</text>
+            <text class="outfit-tag">{{item.styleLabel}}</text>
+          </view>
+          <text wx:if="{{item.savedDate}}" class="outfit-date">保存于 {{item.savedDate}}</text>
+          <text class="detail-link">查看穿搭详情 ›</text>
+        </view>
+      </button>
+    </view>
+  </block>
+
+  <view wx:else class="state-card state-card--empty">
+    <view class="empty-illustration">
+      <view class="empty-hanger">⌒</view>
+      <view class="empty-stars">✦</view>
+    </view>
+    <text class="state-title">没有找到符合当前季节和风格的穿搭</text>
+    <text class="state-description">可以返回修改筛选，或去穿搭栏重新搭配并保存</text>
+    <view class="empty-actions">
+      <button class="secondary-button" bindtap="onAdjustFilters">修改筛选</button>
+      <button class="primary-button" bindtap="onGoOutfitTab">去搭配单品</button>
+    </view>
+  </view>
+
+  <view class="safe-bottom"></view>
+</view>

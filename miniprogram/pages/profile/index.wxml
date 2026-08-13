@@ -1,0 +1,33 @@
+<view class="page">
+  <view wx:if="{{state === 'loading'}}" class="state-card">
+    <view class="spinner"></view>
+    <text class="state-title">正在进入个人中心</text>
+  </view>
+
+  <view wx:elif="{{state === 'error'}}" class="state-card">
+    <view class="state-icon">!</view>
+    <text class="state-title">暂时无法加载</text>
+    <text class="state-copy">{{errorMessage}}</text>
+    <button class="retry-button" bindtap="loadProfile">重试</button>
+  </view>
+
+  <block wx:else>
+    <view class="profile-card">
+      <image wx:if="{{avatarUrl}}" class="avatar" src="{{avatarUrl}}" mode="aspectFill"></image>
+      <view wx:else class="avatar avatar-placeholder">
+        <view class="avatar-head"></view>
+        <view class="avatar-body"></view>
+      </view>
+      <text class="profile-title">我的小衣橱</text>
+      <text class="profile-copy">衣橱、穿搭与个人偏好会按当前微信用户独立保存。</text>
+    </view>
+
+    <view class="notice-card">
+      <text class="notice-symbol">✦</text>
+      <view class="notice-copy">
+        <text class="notice-title">个人中心</text>
+        <text class="notice-description">当前版本暂未开放其他个人设置。</text>
+      </view>
+    </view>
+  </block>
+</view>

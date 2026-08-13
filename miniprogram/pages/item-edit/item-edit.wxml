@@ -1,0 +1,48 @@
+<view class="page">
+  <view wx:if="{{state === 'loading'}}" class="state-card"><view class="spinner"></view><text>正在加载单品…</text></view>
+  <view wx:elif="{{state === 'error'}}" class="state-card"><text class="error-icon">！</text><text>{{errorMessage}}</text><button class="retry" bindtap="loadItem">重试</button></view>
+  <block wx:else>
+    <view class="image-card">
+      <image class="item-image" src="{{imageUrl}}" mode="aspectFit" />
+      <button class="change-image" bindtap="changeImage">更换图片</button>
+      <text class="image-note">更换图片不会修改历史穿搭已保存的快照</text>
+    </view>
+
+    <view class="form-card">
+      <text class="card-title">基础信息</text>
+      <view class="field"><text class="label">单品名称 <text class="required">*</text></text><input class="input" maxlength="20" value="{{form.name}}" data-field="name" bindinput="onInput" /></view>
+      <view id="category-field" class="field">
+        <text class="label">分类 <text class="required">*</text></text>
+        <view class="choice-grid">
+          <button wx:for="{{categoryOptions}}" wx:key="value" class="choice {{form.category === item.value ? 'selected' : ''}}" data-field="category" data-value="{{item.value}}" bindtap="onSingleSelect"><text>{{item.icon}}</text><text>{{item.label}}</text></button>
+        </view>
+      </view>
+      <view class="field"><text class="label">适用季节 <text class="required">*</text><text class="hint">可多选</text></text><view class="pill-row"><button wx:for="{{seasonOptions}}" wx:key="value" class="pill {{selectedSeasons[item.value] ? 'selected' : ''}}" data-field="seasons" data-value="{{item.value}}" bindtap="onMultiSelect">{{item.label}}</button></view></view>
+      <view class="field"><text class="label">风格 <text class="required">*</text><text class="hint">可多选</text></text><view class="pill-row"><button wx:for="{{styleOptions}}" wx:key="value" class="pill {{selectedStyles[item.value] ? 'selected' : ''}}" data-field="styles" data-value="{{item.value}}" bindtap="onMultiSelect">{{item.label}}</button></view></view>
+    </view>
+
+    <view class="form-card">
+      <text class="card-title">单品属性</text>
+      <view class="field"><text class="label">主颜色 <text class="hint">单选</text></text><view class="color-grid"><button wx:for="{{colorOptions}}" wx:key="value" class="color-choice {{form.primaryColor === item.value ? 'color-selected' : ''}}" data-field="primaryColor" data-value="{{item.value}}" bindtap="onSingleSelect"><view class="swatch {{item.value === 'multicolor' ? 'rainbow' : ''}}" style="{{item.value === 'multicolor' ? '' : 'background:' + item.swatch}}"></view><text>{{item.label}}</text></button></view></view>
+      <view class="field"><text class="label">厚度</text><view class="pill-row"><button wx:for="{{thicknessOptions}}" wx:key="value" class="pill {{form.thickness === item.value ? 'selected' : ''}}" data-field="thickness" data-value="{{item.value}}" bindtap="onSingleSelect">{{item.label}}</button></view></view>
+      <view class="field"><text class="label">尺码</text><input class="input" maxlength="20" placeholder="例如 M / 165/88A" value="{{form.size}}" data-field="size" bindinput="onInput" /></view>
+    </view>
+
+    <view class="form-card">
+      <text class="card-title">购买信息</text>
+      <view class="two-column">
+        <view class="field half"><text class="label">购买价格（元）</text><input class="input" type="digit" maxlength="10" value="{{form.purchasePrice}}" data-field="purchasePrice" bindinput="onInput" /></view>
+        <view class="field half"><text class="label">购买日期</text><picker mode="date" end="{{today}}" value="{{form.purchaseDate}}" bindchange="onDateChange"><view class="input picker">{{form.purchaseDate || '请选择'}}</view></picker></view>
+      </view>
+      <view class="field"><text class="label">购买渠道</text><input class="input" maxlength="30" value="{{form.purchaseChannel}}" data-field="purchaseChannel" bindinput="onInput" /></view>
+    </view>
+
+    <view class="form-card">
+      <view class="title-action"><text class="card-title">✦ AI 单品介绍</text><button class="regenerate" bindtap="regenerateDescription">重新生成</button></view>
+      <textarea class="textarea" maxlength="300" value="{{form.aiDescription}}" data-field="aiDescription" bindinput="onInput" />
+    </view>
+    <view class="form-card"><text class="card-title">我的备注</text><textarea class="textarea short" maxlength="200" value="{{form.note}}" data-field="note" bindinput="onInput" /></view>
+
+    <view class="actions"><button class="cancel" bindtap="cancel">取消</button><button class="save" loading="{{saving}}" disabled="{{saving}}" bindtap="saveItem">保存修改</button></view>
+  </block>
+</view>

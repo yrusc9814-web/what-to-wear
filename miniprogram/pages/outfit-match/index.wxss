@@ -1,0 +1,384 @@
+page {
+  min-height: 100%;
+  color: #493236;
+  background: #fff9f8;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+button::after {
+  border: 0;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 30rpx 32rpx;
+  box-sizing: border-box;
+  background: radial-gradient(circle at 90% 2%, rgba(255, 222, 228, 0.52), transparent 31%), #fff9f8;
+}
+
+.intro-card {
+  display: flex;
+  min-height: 170rpx;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 30rpx;
+  overflow: hidden;
+  border: 2rpx solid #f6d1d7;
+  border-radius: 34rpx;
+  background: linear-gradient(130deg, #fffdfc, #fff1f3);
+  box-shadow: 0 12rpx 32rpx rgba(177, 94, 110, 0.08);
+  box-sizing: border-box;
+}
+
+.page-title {
+  display: block;
+  color: #4a292e;
+  font-size: 39rpx;
+  font-weight: 650;
+}
+
+.page-description {
+  display: block;
+  max-width: 500rpx;
+  margin-top: 13rpx;
+  color: #8b7478;
+  font-size: 22rpx;
+  line-height: 1.55;
+}
+
+.hanger-decoration {
+  flex: 0 0 auto;
+  margin-left: 20rpx;
+  color: #ef9db1;
+  font-size: 78rpx;
+  opacity: 0.72;
+  transform: rotate(180deg);
+}
+
+.filter-summary {
+  display: flex;
+  min-height: 116rpx;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 22rpx;
+  padding: 20rpx 26rpx;
+  border: 2rpx solid #f1dddd;
+  border-radius: 28rpx;
+  background: rgba(255, 255, 255, 0.8);
+  box-sizing: border-box;
+}
+
+.summary-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.summary-label {
+  color: #978184;
+  font-size: 20rpx;
+}
+
+.summary-tags {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 9rpx;
+  gap: 10rpx;
+}
+
+.summary-tag,
+.outfit-tag {
+  padding: 7rpx 18rpx;
+  border: 2rpx solid #f4cbd4;
+  border-radius: 24rpx;
+  color: #db627e;
+  font-size: 20rpx;
+  line-height: 1.1;
+  background: #fff5f7;
+}
+
+.adjust-button {
+  min-height: 62rpx;
+  margin: 0 0 0 20rpx;
+  padding: 0 24rpx;
+  border: 2rpx solid #ef8ca4;
+  border-radius: 32rpx;
+  color: #e45476;
+  font-size: 22rpx;
+  line-height: 60rpx;
+  background: #fff9fa;
+}
+
+.state-card {
+  display: flex;
+  min-height: 440rpx;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: 26rpx;
+  padding: 46rpx 38rpx;
+  border: 2rpx solid #f2dddd;
+  border-radius: 34rpx;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.77);
+  box-sizing: border-box;
+}
+
+.state-card--empty {
+  min-height: 520rpx;
+}
+
+.state-title {
+  max-width: 560rpx;
+  margin-top: 20rpx;
+  color: #593f43;
+  font-size: 27rpx;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.state-description {
+  max-width: 510rpx;
+  margin-top: 13rpx;
+  color: #988487;
+  font-size: 22rpx;
+  line-height: 1.55;
+}
+
+.state-icon--error {
+  display: flex;
+  width: 62rpx;
+  height: 62rpx;
+  align-items: center;
+  justify-content: center;
+  border: 3rpx solid #e9859a;
+  border-radius: 50%;
+  color: #e36a82;
+  font-size: 40rpx;
+}
+
+.loading-ring {
+  width: 52rpx;
+  height: 52rpx;
+  border: 5rpx solid #f4d8de;
+  border-top-color: #ef7593;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.secondary-button,
+.primary-button {
+  min-height: 68rpx;
+  margin: 26rpx 0 0;
+  padding: 0 30rpx;
+  border-radius: 35rpx;
+  font-size: 23rpx;
+  line-height: 66rpx;
+}
+
+.secondary-button {
+  border: 2rpx solid #ef8ca4;
+  color: #e45476;
+  background: #fff9fa;
+}
+
+.primary-button {
+  color: #fff;
+  background: linear-gradient(112deg, #ff7895, #fa507b);
+  box-shadow: 0 10rpx 22rpx rgba(235, 84, 121, 0.2);
+}
+
+.result-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 34rpx 7rpx 18rpx;
+}
+
+.result-title {
+  color: #4e3437;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.result-hint {
+  color: #a18c8f;
+  font-size: 20rpx;
+}
+
+.outfit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.outfit-card {
+  display: flex;
+  width: 100%;
+  min-height: 250rpx;
+  align-items: stretch;
+  margin: 0;
+  padding: 16rpx;
+  overflow: hidden;
+  border: 2rpx solid #f2d8da;
+  border-radius: 32rpx;
+  color: #4f3639;
+  line-height: 1.35;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 10rpx 28rpx rgba(164, 99, 111, 0.07);
+  box-sizing: border-box;
+}
+
+.outfit-preview {
+  width: 210rpx;
+  min-height: 218rpx;
+  flex: 0 0 210rpx;
+  overflow: hidden;
+  border-radius: 24rpx;
+  background: #fff5f5;
+}
+
+.outfit-image {
+  width: 100%;
+  height: 100%;
+}
+
+.outfit-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 18rpx 16rpx 12rpx 24rpx;
+}
+
+.outfit-title {
+  overflow: hidden;
+  color: #4d3135;
+  font-size: 29rpx;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outfit-tags {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 16rpx;
+  gap: 10rpx;
+}
+
+.outfit-date {
+  margin-top: 15rpx;
+  color: #a28d90;
+  font-size: 20rpx;
+}
+
+.detail-link {
+  margin-top: auto;
+  color: #e55d7c;
+  font-size: 22rpx;
+}
+
+.outfit-composition {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.preview-item {
+  position: absolute;
+}
+
+.preview-item-hat {
+  z-index: 5;
+  top: 1%;
+  left: 31%;
+  width: 38%;
+  height: 22%;
+}
+
+.preview-item-top {
+  z-index: 3;
+  top: 15%;
+  left: 15%;
+  width: 58%;
+  height: 38%;
+}
+
+.preview-item-bottom {
+  z-index: 2;
+  top: 43%;
+  left: 18%;
+  width: 58%;
+  height: 40%;
+}
+
+.preview-item-shoes {
+  z-index: 4;
+  bottom: 1%;
+  left: 27%;
+  width: 56%;
+  height: 21%;
+}
+
+.preview-item-bag {
+  z-index: 6;
+  top: 32%;
+  right: 2%;
+  width: 38%;
+  height: 30%;
+}
+
+.preview-empty {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: #e7a7b6;
+  font-size: 68rpx;
+  transform: rotate(180deg);
+}
+
+.empty-illustration {
+  position: relative;
+  width: 130rpx;
+  height: 110rpx;
+}
+
+.empty-hanger {
+  color: #ee9eb1;
+  font-size: 90rpx;
+  transform: rotate(180deg);
+}
+
+.empty-stars {
+  position: absolute;
+  right: 0;
+  top: 0;
+  color: #f7b7c5;
+  font-size: 28rpx;
+}
+
+.empty-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4rpx;
+  gap: 18rpx;
+}
+
+.empty-actions .secondary-button,
+.empty-actions .primary-button {
+  margin-top: 24rpx;
+}
+
+.safe-bottom {
+  height: calc(env(safe-area-inset-bottom) + 28rpx);
+}

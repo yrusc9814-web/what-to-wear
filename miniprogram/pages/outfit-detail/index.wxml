@@ -1,0 +1,64 @@
+<view class="page">
+  <view wx:if="{{state === 'loading'}}" class="state-card">
+    <view class="spinner"></view>
+    <text class="state-title">正在加载穿搭详情</text>
+  </view>
+
+  <view wx:elif="{{state === 'error'}}" class="state-card">
+    <view class="state-icon">!</view>
+    <text class="state-title">暂时无法查看</text>
+    <text class="state-copy">{{errorMessage}}</text>
+    <button class="secondary-button" bindtap="loadDetail">重试</button>
+  </view>
+
+  <block wx:else>
+    <view class="hero">
+      <view wx:if="{{isToday}}" class="today-badge">今日穿搭</view>
+      <image wx:if="{{outfit.previewImageUrl}}" class="preview-cover" src="{{outfit.previewImageUrl}}" mode="aspectFit"></image>
+      <block wx:else>
+        <image wx:for="{{outfit.layers}}" wx:for-item="piece" wx:key="slot" class="layer layer-{{piece.slot}} {{piece.missing ? 'layer-missing' : ''}}" src="{{piece.imageUrl}}" mode="aspectFit"></image>
+        <view wx:if="{{!outfit.layers.length}}" class="preview-empty">⌒</view>
+      </block>
+    </view>
+
+    <view class="info-card">
+      <text class="outfit-title">{{outfit.title}}</text>
+      <view class="tag-row">
+        <text wx:if="{{outfit.seasonLabel}}">{{outfit.seasonLabel}}</text>
+        <text wx:if="{{outfit.styleLabel}}">{{outfit.styleLabel}}</text>
+      </view>
+      <view class="divider"></view>
+      <view class="date-row">
+        <text>保存日期</text>
+        <text>{{outfit.savedDate}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{outfit.hasMissing}}" class="warning-card">
+      <text class="warning-title">有单品已从衣橱删除</text>
+      <text class="warning-copy">历史快照仍可正常查看；编辑时需重新选择这些槽位。</text>
+    </view>
+
+    <view class="piece-card">
+      <text class="section-title">搭配单品</text>
+      <view wx:for="{{outfit.pieces}}" wx:key="slot" class="piece-row">
+        <view class="piece-thumb">
+          <image wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFit"></image>
+          <text wx:else>{{item.optional ? '无' : '—'}}</text>
+        </view>
+        <view class="piece-copy">
+          <text class="piece-label">{{item.label}}{{item.optional ? '（可选）' : ''}}</text>
+          <text class="piece-name">{{item.name}}</text>
+        </view>
+        <text wx:if="{{item.missing}}" class="missing-tag">已删除</text>
+      </view>
+    </view>
+
+    <button class="today-button {{isToday ? 'today-button-active' : ''}}" loading="{{settingToday}}" disabled="{{settingToday || isToday}}" bindtap="setToday">
+      {{isToday ? '已设为今日穿搭' : '设为今日穿搭'}}
+    </button>
+    <button class="edit-button" bindtap="editOutfit">编辑这套搭配</button>
+    <button class="delete-button" disabled="{{deleting}}" bindtap="deleteOutfit">删除搭配</button>
+    <view class="bottom-space"></view>
+  </block>
+</view>

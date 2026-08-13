@@ -1,0 +1,9 @@
+{
+  "name": "update-saved-outfit",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@cloudbase/node-sdk": "latest",
+    "wx-server-sdk": "latest"
+  }
+}

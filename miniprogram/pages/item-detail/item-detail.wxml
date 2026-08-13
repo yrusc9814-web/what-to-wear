@@ -1,0 +1,55 @@
+<view class="page">
+  <view wx:if="{{state === 'loading'}}" class="state-card">
+    <view class="spinner"></view>
+    <text>正在加载单品…</text>
+  </view>
+  <view wx:elif="{{state === 'error'}}" class="state-card">
+    <text class="state-icon">！</text>
+    <text class="state-title">{{errorMessage}}</text>
+    <button class="retry" bindtap="loadItem">重试</button>
+  </view>
+  <block wx:else>
+    <view class="image-card">
+      <image wx:if="{{item.imageUrl}}" class="hero-image" src="{{item.imageUrl}}" mode="aspectFit" />
+      <view wx:else class="image-empty">暂无图片</view>
+      <text class="item-title">{{item.name}}</text>
+      <text class="item-category">{{item.categoryLabel}}</text>
+    </view>
+
+    <view class="info-card">
+      <text class="card-title">基础信息</text>
+      <view class="info-row"><text class="label">单品名称</text><text class="value">{{item.name}}</text></view>
+      <view class="info-row"><text class="label">分类</text><text class="value">{{item.categoryLabel}}</text></view>
+      <view class="info-row"><text class="label">主颜色</text><text class="value">{{item.primaryColorLabel}}</text></view>
+      <view class="info-row"><text class="label">适用季节</text><text class="value">{{item.seasonText}}</text></view>
+      <view class="info-row"><text class="label">风格</text><text class="value">{{item.styleText}}</text></view>
+    </view>
+
+    <view class="info-card">
+      <text class="card-title">单品属性</text>
+      <view class="info-row"><text class="label">厚度</text><text class="value">{{item.thicknessLabel}}</text></view>
+      <view class="info-row"><text class="label">尺码</text><text class="value">{{item.size || '未填写'}}</text></view>
+    </view>
+
+    <view class="info-card">
+      <text class="card-title">购买信息</text>
+      <view class="info-row"><text class="label">购买价格</text><text class="value">{{item.purchasePriceText}}</text></view>
+      <view class="info-row"><text class="label">购买日期</text><text class="value">{{item.purchaseDate || '未填写'}}</text></view>
+      <view class="info-row"><text class="label">购买渠道</text><text class="value">{{item.purchaseChannel || '未填写'}}</text></view>
+    </view>
+
+    <view wx:if="{{item.aiDescription}}" class="text-card">
+      <text class="card-title">✦ AI 单品介绍</text>
+      <text class="long-copy">{{item.aiDescription}}</text>
+    </view>
+    <view wx:if="{{item.note}}" class="text-card">
+      <text class="card-title">我的备注</text>
+      <text class="long-copy">{{item.note}}</text>
+    </view>
+
+    <view class="actions">
+      <button class="danger" bindtap="deleteItem">删除单品</button>
+      <button class="primary" bindtap="editItem">编辑信息</button>
+    </view>
+  </block>
+</view>

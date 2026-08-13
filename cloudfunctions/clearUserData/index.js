@@ -7,7 +7,7 @@ const db = cloud.database();
 async function softDeleteCollection(collectionName, openid) {
   const result = await db
     .collection(collectionName)
-    .where({ openid, isDeleted: false })
+    .where({ openid, isDeleted: db.command.neq(true) })
     .update({
       data: {
         isDeleted: true,

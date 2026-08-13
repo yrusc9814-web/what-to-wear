@@ -1,0 +1,131 @@
+<view class="page">
+  <view class="safe-top"></view>
+
+  <view class="header">
+    <view class="brand">穿搭 <text class="sparkle">✦</text></view>
+    <button class="saved-link" bindtap="goSavedOutfits">
+      <text class="saved-icon">▣</text>
+      <text>我的搭配</text>
+    </button>
+  </view>
+
+  <view wx:if="{{state === 'loading'}}" class="state-card">
+    <view class="state-spinner"></view>
+    <text class="state-title">正在同步你的衣橱</text>
+    <text class="state-copy">稍后就可以开始搭配</text>
+  </view>
+
+  <view wx:elif="{{state === 'error'}}" class="state-card">
+    <text class="state-symbol">!</text>
+    <text class="state-title">暂时无法加载穿搭</text>
+    <text class="state-copy">{{errorMessage}}</text>
+    <button class="secondary-button" bindtap="loadEditor">重试</button>
+  </view>
+
+  <block wx:else>
+    <view class="preview-card">
+      <view class="preview-heading">
+        <text class="preview-title">穿搭预览</text>
+        <button class="shuffle-button" bindtap="onShuffle">↻ <text>换一套</text></button>
+      </view>
+
+      <view class="composition">
+        <view wx:if="{{!previewSlots.hat && !previewSlots.top && !previewSlots.bottom && !previewSlots.shoes && !previewSlots.bag}}" class="composition-empty">
+          <view class="hanger">⌒</view>
+          <text>选择单品后，搭配会在这里完整呈现</text>
+        </view>
+        <image wx:if="{{previewSlots.hat && previewSlots.hat.imageUrl}}" class="layer layer-hat {{previewSlots.hat.missing ? 'layer-missing' : ''}}" src="{{previewSlots.hat.imageUrl}}" mode="aspectFit"></image>
+        <image wx:if="{{previewSlots.top && previewSlots.top.imageUrl}}" class="layer layer-top {{previewSlots.top.missing ? 'layer-missing' : ''}}" src="{{previewSlots.top.imageUrl}}" mode="aspectFit"></image>
+        <image wx:if="{{previewSlots.bottom && previewSlots.bottom.imageUrl}}" class="layer layer-bottom {{previewSlots.bottom.missing ? 'layer-missing' : ''}}" src="{{previewSlots.bottom.imageUrl}}" mode="aspectFit"></image>
+        <image wx:if="{{previewSlots.shoes && previewSlots.shoes.imageUrl}}" class="layer layer-shoes {{previewSlots.shoes.missing ? 'layer-missing' : ''}}" src="{{previewSlots.shoes.imageUrl}}" mode="aspectFit"></image>
+        <image wx:if="{{previewSlots.bag && previewSlots.bag.imageUrl}}" class="layer layer-bag {{previewSlots.bag.missing ? 'layer-missing' : ''}}" src="{{previewSlots.bag.imageUrl}}" mode="aspectFit"></image>
+      </view>
+
+      <view class="preview-caption">
+        <text class="style-name">{{previewStyle}}</text>
+        <text class="scene-name">{{previewScene}}</text>
+      </view>
+
+      <view wx:if="{{missingSlotLabels.length}}" class="deleted-warning">
+        {{missingSlotText}}中的单品已从衣橱删除，请重新选择后保存
+      </view>
+    </view>
+
+    <view class="selector-list">
+      <view wx:for="{{groups}}" wx:key="value" class="selector-row">
+        <view class="category-label">
+          <view class="category-icon">{{item.icon}}</view>
+          <text class="category-name">{{item.label}}</text>
+          <text wx:if="{{item.optional}}" class="optional">可选</text>
+        </view>
+
+        <scroll-view wx:if="{{item.items.length}}" class="item-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+          <view class="item-track">
+            <button wx:if="{{item.optional}}" class="item-card none-card {{!draft.slots[item.value] ? 'item-card-active' : ''}}" data-category="{{item.value}}" data-id="" bindtap="onSelectItem">
+              <view class="none-symbol">—</view>
+              <text>无</text>
+            </button>
+            <button wx:for="{{item.items}}" wx:for-item="piece" wx:key="id" class="item-card {{piece.selected ? 'item-card-active' : ''}}" data-category="{{item.value}}" data-id="{{piece.id}}" bindtap="onSelectItem">
+              <image wx:if="{{piece.imageUrl}}" class="item-image" src="{{piece.imageUrl}}" mode="aspectFit"></image>
+              <view wx:else class="item-image-empty">{{piece.initial}}</view>
+              <view wx:if="{{piece.selected}}" class="check-mark">✓</view>
+              <text class="item-name">{{piece.name}}</text>
+            </button>
+          </view>
+        </scroll-view>
+
+        <view wx:else class="category-empty">
+          <text>该分类还没有单品</text>
+          <button bindtap="goWardrobe">去衣橱上传</button>
+        </view>
+      </view>
+    </view>
+
+    <button class="save-button" bindtap="onSaveTap">
+      <text>保存搭配</text><text class="save-arrow">→</text>
+    </button>
+    <view class="bottom-space"></view>
+  </block>
+
+  <view wx:if="{{saveOpen}}" class="sheet-mask" bindtap="closeSaveSheet">
+    <view class="save-sheet" catchtap="stopPropagation">
+      <view class="sheet-handle"></view>
+      <view class="sheet-header">
+        <view>
+          <text class="sheet-title">{{draft.mode === 'edit' ? '保存编辑' : '保存搭配'}}</text>
+          <text class="sheet-subtitle">记录这套搭配的名称与标签</text>
+        </view>
+        <button class="close-button" bindtap="closeSaveSheet">×</button>
+      </view>
+
+      <view class="field">
+        <text class="field-label">搭配名称 <text>*</text></text>
+        <input class="title-input" value="{{draft.title}}" maxlength="30" placeholder="例如：春日约会" bindinput="onTitleInput" />
+      </view>
+
+      <view class="field">
+        <text class="field-label">季节 <text>*</text></text>
+        <view class="chip-row">
+          <button wx:for="{{seasonOptions}}" wx:key="value" class="choice-chip {{draft.season === item.value ? 'choice-chip-active' : ''}}" data-value="{{item.value}}" bindtap="onSeasonSelect">{{item.label}}</button>
+        </view>
+      </view>
+
+      <view class="field">
+        <text class="field-label">风格 <text>*</text></text>
+        <view class="chip-row">
+          <button wx:for="{{styleOptions}}" wx:key="value" class="choice-chip {{draft.style === item.value ? 'choice-chip-active' : ''}}" data-value="{{item.value}}" bindtap="onStyleSelect">{{item.label}}</button>
+        </view>
+      </view>
+
+      <view wx:if="{{draft.mode === 'edit'}}" class="edit-actions">
+        <button class="sheet-cancel" disabled="{{saving}}" bindtap="closeSaveSheet">取消</button>
+        <button class="sheet-secondary" disabled="{{saving}}" bindtap="onSaveAsNew">另存为新搭配</button>
+        <button class="sheet-primary" loading="{{saving}}" disabled="{{saving}}" bindtap="onUpdateSave">更新原搭配</button>
+      </view>
+      <view wx:else class="sheet-actions">
+        <button class="sheet-secondary" disabled="{{saving}}" bindtap="closeSaveSheet">取消</button>
+        <button class="sheet-primary" loading="{{saving}}" disabled="{{saving}}" bindtap="onCreateSave">保存搭配</button>
+      </view>
+    </view>
+  </view>
+</view>
