@@ -90,7 +90,9 @@ async function resolveCanonicalId(db, collectionName, openid, clientRecordId, re
   const suppliedId = String(requestedId || "").trim();
   if (suppliedId) {
     const result = await collection.doc(suppliedId).get();
-    const current = result && result.data;
+    const raw = result && result.data;
+    // @cloudbase/node-sdk 3.x 非事务 doc.get() 返回 {data: [doc]} 数组, 事务内返回单对象
+    const current = Array.isArray(raw) ? raw[0] : raw;
     if (!current || current.openid !== openid || current.clientRecordId !== clientRecordId) {
       const error = new Error("记录不存在或无权访问。");
       error.code = "RECORD_NOT_FOUND";
@@ -218,9 +220,12 @@ async function applyMutation({
       next.lastMutationOperation = operation;
 
       if (current) {
-        await ref.update({ data: next });
+        const record = { ...next };
+        // @cloudbase/node-sdk 3.x 不允许 update 数据包含 _id
+        delete record._id;
+        await ref.update(record);
       } else {
-        await ref.set({ data: next });
+        await ref.set(next);
       }
       return {
         ...publicRecord(next, canonicalId),

@@ -11,7 +11,7 @@
    - 部署 mutation 云函数前先执行：`node scripts/prepare-cloudfunctions.mjs`。
    - `cloudfunctions/shared/` 是唯一 canonical 源；脚本会生成六个 mutation 函数目录内的 `shared/` 副本。当前工作区已包含这些副本，可直接按单函数目录部署。
    - 衣橱 / 穿搭 mutation 云函数仍需安装各函数 `package.json` 中的 `@cloudbase/node-sdk`。
-5. 为 `getWeather` 云函数配置环境变量 `TENCENT_MAP_KEY`。
+5. 为 `getWeather` 云函数配置环境变量 `QWEATHER_API_KEY`（和风天气）。
 6. 创建云数据库集合 `clothing_items`、`outfit_records`。
 7. 配置数据库权限规则和索引，参考 `docs/database-rules.md`。
 8. 在真机上验证隐私授权、位置授权、图片上传、云函数调用。
@@ -38,7 +38,14 @@
 `getWeather` 必填：
 
 ```text
-TENCENT_MAP_KEY=你的腾讯地图WebService API Key
+QWEATHER_API_KEY=你的和风天气 API Key
+```
+
+可选覆盖项（不配置时使用下列默认值；和风控制台分配了专属 API Host 时覆盖 `QWEATHER_API_HOST`）：
+
+```text
+QWEATHER_API_HOST=devapi.qweather.com
+QWEATHER_GEO_HOST=geoapi.qweather.com
 ```
 
 `analyzeClothing` 正式识图必填：

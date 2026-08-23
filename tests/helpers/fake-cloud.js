@@ -92,14 +92,14 @@ function createFakeCloud(seed = {}, openid = "user_123") {
             const row = rows.find((entry) => entry._id === id);
             return { data: row ? clone(row) : null };
           },
-          async set({ data }) {
+          async set(data) {
             const index = rows.findIndex((row) => row._id === id);
             const next = { ...clone(data), _id: id };
             if (index < 0) rows.push(next);
             else rows[index] = next;
             return { stats: { updated: 1 } };
           },
-          async update({ data }) {
+          async update(data) {
             const index = rows.findIndex((row) => row._id === id);
             if (index < 0) return { stats: { updated: 0 } };
             rows[index] = { ...rows[index], ...clone(data) };

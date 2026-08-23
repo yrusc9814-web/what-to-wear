@@ -1,19 +1,27 @@
 # 开发配置
 
-## 腾讯地图 Key
+## 和风天气 Key
 
-`getWeather` 云函数通过腾讯地图 WebService API 做两件事：
+`getWeather` 云函数通过和风天气（QWeather）做三件事：
 
-- 自动定位：`lat/lng` 逆地址解析为城市名。
-- 手动城市：城市名解析为 `lat/lng`，再请求天气。
+- 自动定位：`lat/lng` 就近城市查找（GeoAPI，经纬度顺序 lon,lat）。
+- 手动城市：城市名查找（GeoAPI City Lookup）。
+- 天气数据：v7 实时天气 + 7 日预报（now / 7d）。
 
 不要把真实 Key 写进前端或提交到仓库。请在微信云开发控制台为 `getWeather` 云函数配置环境变量：
 
 ```text
-TENCENT_MAP_KEY=你的腾讯地图WebService API Key
+QWEATHER_API_KEY=你的和风天气 API Key
 ```
 
-Key 需要开通 WebService API，并确认地址解析/逆地址解析能力可用。
+可选覆盖（不配置时使用默认值）：
+
+```text
+QWEATHER_API_HOST=devapi.qweather.com
+QWEATHER_GEO_HOST=geoapi.qweather.com
+```
+
+如果和风控制台为你的账号分配了专属 API Host，请把 `QWEATHER_API_HOST` 覆盖为该专属域名。
 
 ## 本地调试
 
@@ -23,13 +31,13 @@ Key 需要开通 WebService API，并确认地址解析/逆地址解析能力可
 cloud1-d1gjweewr2740aa1f
 ```
 
-上传并部署 `cloudfunctions/getWeather`，然后在云函数环境变量里填入 `TENCENT_MAP_KEY`。
+上传并部署 `cloudfunctions/getWeather`，然后在云函数环境变量里填入 `QWEATHER_API_KEY`。
 
 ## 云函数清单
 
 当前需要上传部署：
 
-- `getWeather`：天气、腾讯地图逆地理编码。
+- `getWeather`：天气、和风天气城市查找（GeoAPI）。
 - `saveClothing`：保存衣物。
 - `getWardrobe`：读取衣橱。
 - `updateClothing`：更新衣物。

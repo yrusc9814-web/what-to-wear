@@ -1,87 +1,127 @@
 const cloud = require("wx-server-sdk");
 const https = require("https");
+const zlib = require("zlib");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
-const TENCENT_MAP_KEY = process.env.TENCENT_MAP_KEY;
+const API_KEY = String(process.env.QWEATHER_API_KEY || "").trim() || null;
+const API_HOST = process.env.QWEATHER_API_HOST || "devapi.qweather.com";
+const GEO_HOST = process.env.QWEATHER_GEO_HOST || "geoapi.qweather.com";
 const TIMEOUT_MS = 8000;
 
-const WMO_TEXT = {
-  0: "晴天",
-  1: "晴天",
-  2: "多云",
-  3: "阴天",
-  45: "雾",
-  48: "雾",
-  51: "小雨",
-  53: "小雨",
-  55: "小雨",
-  61: "下雨",
-  63: "下雨",
-  65: "大雨",
-  71: "下雪",
-  73: "下雪",
-  75: "大雪",
-  80: "阵雨",
-  81: "阵雨",
-  82: "强阵雨",
-  95: "雷雨"
+const ALLOWED_HOSTS = new Set([API_HOST, GEO_HOST]);
+const PRIVATE_HOST_PATTERN = /^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|\[?::1\]?|.*\.local$|.*\.internal$)/i;
+
+// 和风天气图标码 → WMO 风格码（保持既有 weatherCode 数值语义，前端按数值兜底渲染表情）
+const QWEATHER_TO_WMO = {
+  100: 0, 150: 0,
+  101: 2, 102: 2, 103: 3, 104: 3,
+  300: 51, 301: 53, 302: 95, 303: 95, 304: 95,
+  305: 61, 306: 61, 307: 63, 308: 65, 309: 51,
+  310: 63, 311: 65, 312: 65, 313: 65,
+  400: 71, 401: 73, 402: 75, 403: 75, 404: 61, 405: 63, 406: 65,
+  407: 75, 408: 73, 409: 75, 410: 75,
+  500: 45, 501: 45, 502: 48, 503: 45, 504: 48,
+  507: 95, 508: 95, 509: 45, 510: 48, 511: 48, 512: 45, 513: 48, 514: 45, 515: 48
 };
 
-function requestJson(url) {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, (res) => {
-      let body = "";
-      res.setEncoding("utf8");
-      res.on("data", (chunk) => {
-        body += chunk;
-      });
-      res.on("end", () => {
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`HTTP_${res.statusCode}`));
-          return;
-        }
+function toWmoCode(iconCode) {
+  const mapped = QWEATHER_TO_WMO[Number(iconCode)];
+  return Number.isInteger(mapped) ? mapped : 2;
+}
 
-        try {
-          resolve(JSON.parse(body));
-        } catch (err) {
-          reject(new Error("JSON_PARSE_FAILED"));
-        }
-      });
-    });
+function assertAllowedHost(host) {
+  if (typeof host !== "string" || !ALLOWED_HOSTS.has(host) || PRIVATE_HOST_PATTERN.test(host)) {
+    const err = new Error("HOST_FORBIDDEN");
+    err.code = "HOST_FORBIDDEN";
+    throw err;
+  }
+}
+
+// 只允许访问白名单主机（和风天气 API / GeoAPI），固定 https + 443，不跟随重定向
+function requestJson(host, path) {
+  assertAllowedHost(host);
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: host,
+        port: 443,
+        path,
+        method: "GET",
+        headers: { "X-QW-Api-Key": API_KEY }
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => {
+          chunks.push(chunk);
+        });
+        res.on("end", () => {
+          let buffer = Buffer.concat(chunks);
+          if (buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
+            try {
+              buffer = zlib.gunzipSync(buffer);
+            } catch (err) {
+              reject(new Error("JSON_PARSE_FAILED"));
+              return;
+            }
+          }
+          let body = "";
+          try {
+            body = buffer.toString("utf8");
+          } catch (err) {
+            body = "";
+          }
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            const err = new Error(`HTTP_${res.statusCode}`);
+            err.code = `HTTP_${res.statusCode}`;
+            if (body) err.detail = body.slice(0, 160);
+            reject(err);
+            return;
+          }
+
+          try {
+            resolve(JSON.parse(body));
+          } catch (err) {
+            reject(new Error("JSON_PARSE_FAILED"));
+          }
+        });
+      }
+    );
 
     req.setTimeout(TIMEOUT_MS, () => {
       req.destroy(new Error("REQUEST_TIMEOUT"));
     });
     req.on("error", reject);
+    req.end();
   });
 }
 
-function ensureMapKey() {
-  if (!TENCENT_MAP_KEY) {
-    const err = new Error("TENCENT_MAP_KEY_NOT_CONFIGURED");
-    err.code = "TENCENT_MAP_KEY_NOT_CONFIGURED";
+function ensureApiKey() {
+  if (!API_KEY) {
+    const err = new Error("QWEATHER_API_KEY_NOT_CONFIGURED");
+    err.code = "QWEATHER_API_KEY_NOT_CONFIGURED";
     throw err;
   }
 }
 
-function createProviderError(code, message) {
-  const err = new Error(message || code);
+function createProviderError(code, detail) {
+  const err = new Error(code);
   err.code = code;
+  if (detail) err.detail = detail;
   return err;
 }
 
 function getUserErrorMessage(err) {
   const code = err.code || err.message;
-  const detail = err.message && err.message !== code ? `（${err.message}）` : "";
-  if (code === "TENCENT_MAP_KEY_NOT_CONFIGURED") {
-    return "getWeather 云函数未配置 TENCENT_MAP_KEY。";
+  const detail = err.detail ? `（${err.detail}）` : "";
+  if (code === "QWEATHER_API_KEY_NOT_CONFIGURED") {
+    return "getWeather 云函数未配置 QWEATHER_API_KEY。";
   }
-  if (code === "TENCENT_GEOCODE_FAILED") {
-    return `城市解析失败，请确认腾讯地图 Key 已开通 WebService API${detail}。`;
+  if (code === "QWEATHER_GEO_LOOKUP_FAILED") {
+    return `城市解析失败，请确认和风天气 Key 有效且已开通城市查找（GeoAPI）服务${detail}。`;
   }
-  if (code === "TENCENT_REVERSE_GEOCODE_FAILED") {
-    return `定位解析失败，请确认腾讯地图 Key 已开通 WebService API${detail}。`;
+  if (code === "QWEATHER_WEATHER_FAILED") {
+    return `天气服务返回异常，请稍后重试${detail}。`;
   }
   if (code === "REQUEST_TIMEOUT") {
     return "天气服务请求超时，请稍后重试。";
@@ -90,7 +130,7 @@ function getUserErrorMessage(err) {
     return "天气服务返回异常，请稍后重试。";
   }
   if (String(code).startsWith("HTTP_")) {
-    return "天气或地图接口访问失败，请稍后重试。";
+    return `天气接口访问失败，请稍后重试${detail}。`;
   }
   return "天气获取失败，请稍后重试或手动选择城市。";
 }
@@ -105,81 +145,64 @@ function buildSuggestion(temp, weatherText) {
   return `今日${temp}℃，${weatherText}，优先羽绒或厚呢大衣，注意防寒。`;
 }
 
-async function reverseGeocode(lat, lng) {
-  ensureMapKey();
-  const url =
-    "https://apis.map.qq.com/ws/geocoder/v1/?" +
-    `location=${encodeURIComponent(`${lat},${lng}`)}` +
-    `&key=${encodeURIComponent(TENCENT_MAP_KEY)}`;
-  const data = await requestJson(url);
-  if (data.status !== 0 || !data.result) {
-    throw createProviderError("TENCENT_REVERSE_GEOCODE_FAILED", data.message);
-  }
+function isHttpNotFound(err) {
+  return String(err && (err.code || err.message)).startsWith("HTTP_404");
+}
 
-  const component = data.result.address_component || {};
+// 城市名 / 经纬度（lon,lat）→ 和风城市信息（经纬度查找时返回最近城市）
+// 公共 GeoAPI 域名对新账号可能 404，此时回退到专属 API Host 的 /geo/v2/city/lookup
+async function lookupLocation(query) {
+  ensureApiKey();
+  const publicPath =
+    "/v2/city/lookup?" +
+    `location=${encodeURIComponent(query)}` +
+    "&number=1&lang=zh";
+  let data;
+  try {
+    data = await requestJson(GEO_HOST, publicPath);
+  } catch (err) {
+    if (!isHttpNotFound(err) || API_HOST === GEO_HOST) throw err;
+    const dedicatedPath =
+      "/geo/v2/city/lookup?" +
+      `location=${encodeURIComponent(query)}` +
+      "&number=1&lang=zh";
+    data = await requestJson(API_HOST, dedicatedPath);
+  }
+  if (data.code !== "200" || !Array.isArray(data.location) || !data.location.length) {
+    throw createProviderError("QWEATHER_GEO_LOOKUP_FAILED", `code=${data.code}`);
+  }
+  const city = data.location[0];
   return {
-    cityName: component.city || component.district || component.province || "当前位置",
-    lat,
-    lng
+    cityName: city.adm2 || city.adm1 || city.name,
+    displayName: city.name,
+    locationId: city.id,
+    lat: Number(city.lat),
+    lng: Number(city.lon)
   };
 }
 
-async function geocodeCity(cityName) {
-  ensureMapKey();
-  const url =
-    "https://apis.map.qq.com/ws/geocoder/v1/?" +
-    `address=${encodeURIComponent(cityName)}` +
-    `&key=${encodeURIComponent(TENCENT_MAP_KEY)}`;
-  const data = await requestJson(url);
-  if (data.status !== 0 || !data.result || !data.result.location) {
-    throw createProviderError("TENCENT_GEOCODE_FAILED", data.message);
+async function fetchCurrentWeather(locationId) {
+  ensureApiKey();
+  const data = await requestJson(
+    API_HOST,
+    `/v7/weather/now?location=${encodeURIComponent(locationId)}`
+  );
+  if (data.code !== "200" || !data.now) {
+    throw createProviderError("QWEATHER_WEATHER_FAILED", `code=${data.code}`);
   }
-
-  return {
-    cityName,
-    lat: data.result.location.lat,
-    lng: data.result.location.lng
-  };
+  return data.now;
 }
 
-async function fetchOpenMeteo(lat, lng) {
-  const url =
-    "https://api.open-meteo.com/v1/forecast" +
-    `?latitude=${encodeURIComponent(lat)}` +
-    `&longitude=${encodeURIComponent(lng)}` +
-    "&current=temperature_2m,weather_code,wind_speed_10m" +
-    "&daily=weather_code,temperature_2m_max,temperature_2m_min" +
-    "&forecast_days=6" +
-    "&timezone=auto";
-  const data = await requestJson(url);
-  if (!data.current) throw new Error("WEATHER_RESPONSE_INVALID");
-
-  const temp = Math.round(data.current.temperature_2m);
-  const weatherCode = data.current.weather_code;
-  const weatherText = WMO_TEXT[weatherCode] || "多云";
-
-  const daily = data.daily || {};
-  const forecast = (daily.time || []).slice(0, 6).map((date, index) => {
-    const code = daily.weather_code[index];
-    const tempMin = Math.round(daily.temperature_2m_min[index]);
-    const tempMax = Math.round(daily.temperature_2m_max[index]);
-    return {
-      date,
-      weatherText: WMO_TEXT[code] || "多云",
-      weatherCode: code,
-      tempMin,
-      tempMax,
-      outfitSuggestion: buildSuggestion(Math.round((tempMin + tempMax) / 2), WMO_TEXT[code] || "多云")
-    };
-  });
-
-  return {
-    temp,
-    weatherText,
-    weatherCode,
-    windSpeed: data.current.wind_speed_10m,
-    forecast
-  };
+async function fetchDailyForecast(locationId) {
+  ensureApiKey();
+  const data = await requestJson(
+    API_HOST,
+    `/v7/weather/7d?location=${encodeURIComponent(locationId)}`
+  );
+  if (data.code !== "200" || !Array.isArray(data.daily) || !data.daily.length) {
+    throw createProviderError("QWEATHER_WEATHER_FAILED", `code=${data.code}`);
+  }
+  return data.daily;
 }
 
 exports.main = async (event = {}) => {
@@ -195,23 +218,45 @@ exports.main = async (event = {}) => {
       };
     }
 
+    // 和风 GeoAPI 经纬度查找顺序为 lon,lat
     const location = hasLocation
-      ? await reverseGeocode(Number(event.lat), Number(event.lng))
-      : await geocodeCity(cityName);
-    const weather = await fetchOpenMeteo(location.lat, location.lng);
+      ? await lookupLocation(`${Number(event.lng)},${Number(event.lat)}`)
+      : await lookupLocation(cityName);
+    const [now, daily] = await Promise.all([
+      fetchCurrentWeather(location.locationId),
+      fetchDailyForecast(location.locationId)
+    ]);
+
+    const temp = Math.round(Number(now.temp));
+    if (!Number.isFinite(temp)) throw new Error("WEATHER_RESPONSE_INVALID");
+
+    const forecast = daily.slice(0, 6).map((day) => {
+      const tempMin = Math.round(Number(day.tempMin));
+      const tempMax = Math.round(Number(day.tempMax));
+      const weatherText = day.textDay || "多云";
+      return {
+        date: day.fxDate,
+        weatherText,
+        weatherCode: toWmoCode(day.iconDay),
+        tempMin,
+        tempMax,
+        outfitSuggestion: buildSuggestion(Math.round((tempMin + tempMax) / 2), weatherText)
+      };
+    });
 
     return {
       ok: true,
       data: {
         cityName: location.cityName,
+        displayName: location.displayName,
         lat: location.lat,
         lng: location.lng,
-        temp: weather.temp,
-        weatherText: weather.weatherText,
-        weatherCode: weather.weatherCode,
-        windSpeed: weather.windSpeed,
-        outfitSuggestion: buildSuggestion(weather.temp, weather.weatherText),
-        forecast: weather.forecast,
+        temp,
+        weatherText: now.text || "多云",
+        weatherCode: toWmoCode(now.icon),
+        windSpeed: Number(now.windSpeed),
+        outfitSuggestion: buildSuggestion(temp, now.text || "多云"),
+        forecast,
         source: hasLocation ? "location" : "manual_city"
       }
     };
