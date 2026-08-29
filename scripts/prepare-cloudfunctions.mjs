@@ -10,7 +10,10 @@ const mutationFunctions = [
   "deleteClothing",
   "saveOutfit",
   "updateSavedOutfit",
-  "deleteOutfitRecord"
+  "deleteOutfitRecord",
+  "saveOutfitReference",
+  "updateOutfitReference",
+  "deleteOutfitReference"
 ];
 
 await access(canonicalShared);

@@ -24,8 +24,10 @@
     <view class="form-card">
       <text class="card-title">单品属性</text>
       <view class="field"><text class="label">主颜色 <text class="hint">单选</text></text><view class="color-grid"><button wx:for="{{colorOptions}}" wx:key="value" class="color-choice {{form.primaryColor === item.value ? 'color-selected' : ''}}" data-field="primaryColor" data-value="{{item.value}}" bindtap="onSingleSelect"><view class="swatch {{item.value === 'multicolor' ? 'rainbow' : ''}}" style="{{item.value === 'multicolor' ? '' : 'background:' + item.swatch}}"></view><text>{{item.label}}</text></button></view></view>
-      <view class="field"><text class="label">厚度</text><view class="pill-row"><button wx:for="{{thicknessOptions}}" wx:key="value" class="pill {{form.thickness === item.value ? 'selected' : ''}}" data-field="thickness" data-value="{{item.value}}" bindtap="onSingleSelect">{{item.label}}</button></view></view>
-      <view class="field"><text class="label">尺码</text><input class="input" maxlength="20" placeholder="例如 M / 165/88A" value="{{form.size}}" data-field="size" bindinput="onInput" /></view>
+      <view class="two-column">
+        <view class="field half"><text class="label">厚度</text><view class="pill-row compact"><button wx:for="{{thicknessOptions}}" wx:key="value" class="pill compact-pill {{form.thickness === item.value ? 'selected' : ''}}" data-field="thickness" data-value="{{item.value}}" bindtap="onSingleSelect">{{item.label}}</button></view></view>
+        <view class="field half"><text class="label">尺码</text><input class="input" maxlength="20" placeholder="例如 M / 165/88A" value="{{form.size}}" data-field="size" bindinput="onInput" /></view>
+      </view>
     </view>
 
     <view class="form-card">
@@ -38,7 +40,7 @@
     </view>
 
     <view class="form-card">
-      <view class="title-action"><text class="card-title">✦ AI 单品介绍</text><button class="regenerate" bindtap="regenerateDescription">重新生成</button></view>
+      <view class="title-action"><text class="card-title">✦ 单品介绍</text></view>
       <textarea class="textarea" maxlength="300" value="{{form.aiDescription}}" data-field="aiDescription" bindinput="onInput" />
     </view>
     <view class="form-card"><text class="card-title">我的备注</text><textarea class="textarea short" maxlength="200" value="{{form.note}}" data-field="note" bindinput="onInput" /></view>

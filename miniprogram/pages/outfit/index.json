@@ -1,5 +1,6 @@
 {
   "navigationStyle": "custom",
+  "navigationBarTitleText": "试穿",
   "enablePullDownRefresh": true,
   "backgroundColor": "#fff9f8",
   "backgroundTextStyle": "dark"

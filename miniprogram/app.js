@@ -18,6 +18,13 @@ App({
     });
     this.initializeUserScope();
     this.validateTodayOutfit();
+    try {
+      require("./services/app-service").sweepExpiredTempImages().catch((err) => {
+        console.warn("temp image sweep failed", err);
+      });
+    } catch (err) {
+      console.warn("temp image sweep unavailable", err);
+    }
   },
 
   onShow() {

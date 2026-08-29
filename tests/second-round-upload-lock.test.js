@@ -8,7 +8,11 @@ const appService = {
   createWardrobeItem() {
     createCalls += 1;
     return new Promise((resolve) => { resolveSave = resolve; });
-  }
+  },
+  persistLocalImage(path) { return Promise.resolve(path); },
+  clearTempImage() { return Promise.resolve(true); },
+  unregisterTempImage() {},
+  sweepExpiredTempImages() { return Promise.resolve(0); }
 };
 let definition;
 global.Page = (value) => { definition = value; };
@@ -50,6 +54,7 @@ global.wx = {
   };
   const first = page.saveItem();
   const second = page.saveItem();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.strictEqual(createCalls, 1, "saveItem 入口必须不可重入");
   resolveSave({ syncStatus: "synced", id: "item_1" });
   await Promise.all([first, second]);

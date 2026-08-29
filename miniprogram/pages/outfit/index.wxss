@@ -15,6 +15,7 @@ button::after {
 
 .page {
   min-height: 100vh;
+  /* 进出边距（页面左右）24rpx —— 两栏宽度计算的基准之一，见 .workspace 注释 */
   padding: 0 24rpx;
   box-sizing: border-box;
   background: radial-gradient(circle at 8% 2%, rgba(255, 223, 228, 0.52), transparent 24%), #fff9f8;
@@ -24,111 +25,325 @@ button::after {
   height: calc(env(safe-area-inset-top) + 24rpx);
 }
 
+/* ---- 顶部：居中主标题 + 分段切换 ---- */
+
 .header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10rpx 10rpx 28rpx;
+  padding: 10rpx 10rpx 24rpx;
 }
 
 .brand {
-  color: #f64f78;
-  font-size: 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3f2d30;
+  font-size: 44rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
 }
 
 .sparkle {
-  color: #fa86a1;
-  font-size: 34rpx;
-}
-
-.saved-link {
-  display: flex;
-  min-height: 66rpx;
-  align-items: center;
-  margin: 0;
-  padding: 0 24rpx;
-  border: 2rpx solid #ffcbd6;
-  border-radius: 36rpx;
-  color: #f04e76;
-  font-size: 24rpx;
-  line-height: 66rpx;
-  background: #fff0f3;
-}
-
-.saved-icon {
-  margin-right: 10rpx;
+  margin-left: 6rpx;
+  color: #f08bab;
   font-size: 28rpx;
 }
 
-.preview-card {
-  position: relative;
-  min-height: 550rpx;
-  padding: 24rpx;
-  overflow: hidden;
-  border: 2rpx solid #ffcbd3;
-  border-radius: 34rpx;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(255, 243, 244, 0.82));
-  box-shadow: 0 18rpx 40rpx rgba(190, 105, 121, 0.08);
+.mode-switch {
+  display: flex;
+  width: 320rpx;
+  height: 64rpx;
+  margin: 0 auto 20rpx;
+  padding: 4rpx;
+  border-radius: 32rpx;
+  background: #fff0f3;
   box-sizing: border-box;
 }
 
-.preview-heading {
+.mode-segment {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 28rpx;
+  color: #8a7d82;
+  font-size: 26rpx;
+}
+
+.mode-active {
+  color: #e75e7d;
+  font-weight: 600;
+  background: #fff;
+  box-shadow: 0 4rpx 12rpx rgba(190, 110, 125, 0.12);
+}
+
+/* ---- 主体左右分栏（Round 1.5.4：右栏略宽、点阵画布吃满右栏高度）----
+ * 进出边距与两栏宽度换算（与 outfit-layout.js 头注释一致）：
+ *   屏幕宽 750rpx；.page 左右 padding 各 24rpx → 内容宽 702rpx；
+ *   栏间距 16rpx → 两栏合计 686rpx；
+ *   左栏 326rpx（686×47.5%）+ 右栏 360rpx（686×52.5%），右侧比左侧多约 5 个百分点。
+ */
+
+.workspace {
+  display: flex;
+  align-items: stretch;
+  gap: 16rpx;
+}
+
+/* 左栏：已选衣物面板（326rpx，flex 拉伸与右栏等高） */
+
+.slot-panel {
+  display: flex;
+  width: 326rpx;
+  flex: 0 0 326rpx;
+  flex-direction: column;
+  padding: 16rpx 14rpx 14rpx;
+  border: 2rpx solid #f1ded8;
+  border-radius: 28rpx;
+  background: #fff;
+  box-shadow: 0 12rpx 30rpx rgba(190, 110, 125, 0.06);
+  box-sizing: border-box;
+}
+
+.panel-title {
+  color: #5b4346;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+.slot-empty-hint {
+  margin-top: 10rpx;
+  color: #a48e91;
+  font-size: 20rpx;
+  line-height: 1.4;
+}
+
+.slot-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10rpx;
+  margin-top: 12rpx;
+}
+
+/* 槽卡：filled（实线边框，含缩略图+名称+操作）/ empty（虚线占位）两态 */
+
+.slot-card {
   position: relative;
-  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-height: 108rpx;
+  padding: 10rpx 10rpx 8rpx;
+  border: 2rpx dashed #e4cdd0;
+  border-radius: 18rpx;
+  box-sizing: border-box;
+}
+
+.slot-card-filled {
+  min-height: 124rpx;
+  border-style: solid;
+  border-color: #f1ded8;
+}
+
+.slot-card-selected {
+  border-color: #f2829d;
+  background: #fff7f8;
+}
+
+.slot-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.slot-thumb {
+  display: block;
+  width: 64rpx;
+  height: 64rpx;
+  flex: 0 0 64rpx;
+  border-radius: 12rpx;
+  background: #fff4f5;
+}
+
+.slot-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #d18f9c;
+  font-size: 28rpx;
+}
+
+.slot-info {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  margin-left: 10rpx;
+}
+
+.slot-tag {
+  color: #a48e91;
+  font-size: 16rpx;
+  line-height: 20rpx;
+}
+
+.slot-name {
+  overflow: hidden;
+  margin-top: 2rpx;
+  color: #443c40;
+  font-size: 18rpx;
+  line-height: 24rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot-check {
+  display: flex;
+  width: 28rpx;
+  height: 28rpx;
+  flex: 0 0 28rpx;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6rpx;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 16rpx;
+  background: #ef5d80;
+}
+
+.slot-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10rpx;
+  margin-top: 6rpx;
+}
+
+.slot-action {
+  display: flex;
+  width: 44rpx;
+  height: 40rpx;
+  align-items: center;
+  justify-content: center;
+  border: 2rpx solid #f5cdd7;
+  border-radius: 12rpx;
+  color: #e75e7d;
+  font-size: 22rpx;
+  line-height: 36rpx;
+  background: #fff5f7;
+}
+
+.slot-action:active {
+  background: #ffe1e7;
+}
+
+.slot-action-disabled {
+  color: #c3b0b4;
+  border-color: #eedcd9;
+  opacity: 0.55;
+  background: #f8f2f3;
+}
+
+.slot-action-danger {
+  color: #fff;
+  border-color: #ef5d80;
+  background: #f78ba4;
+}
+
+.slot-empty-label {
+  display: flex;
+  width: 100%;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  color: #a48e91;
+  font-size: 18rpx;
+  text-align: center;
+}
+
+.reset-canvas {
+  display: flex;
+  min-height: 60rpx;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12rpx;
+  border: 2rpx solid #f2c5cf;
+  border-radius: 30rpx;
+  color: #df637e;
+  font-size: 24rpx;
+  font-weight: 500;
+  background: #fff0f3;
+  box-sizing: border-box;
+}
+
+.reset-canvas-disabled {
+  opacity: 0.5;
+}
+
+/* 右栏：试衣搭配画板（flex:1 占剩余 360rpx，与左栏 stretch 等高） */
+
+.canvas-panel {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 16rpx 0 14rpx;
+  border: 2rpx solid #f1ded8;
+  border-radius: 28rpx;
+  background: #fff;
+  box-shadow: 0 12rpx 30rpx rgba(190, 110, 125, 0.06);
+  box-sizing: border-box;
+}
+
+.canvas-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 0 16rpx;
 }
 
-.preview-title {
-  color: #54383a;
-  font-size: 28rpx;
+.canvas-title {
+  color: #5b4346;
+  font-size: 22rpx;
   font-weight: 600;
 }
 
 .shuffle-button {
   display: flex;
-  min-height: 58rpx;
+  min-height: 48rpx;
   align-items: center;
-  margin: 0;
-  padding: 0 20rpx;
-  border: 2rpx solid #ffd6dc;
-  border-radius: 32rpx;
-  color: #ed5276;
-  font-size: 25rpx;
-  line-height: 58rpx;
-  background: rgba(255, 255, 255, 0.75);
+  color: #e75e7d;
+  font-size: 22rpx;
 }
 
 .shuffle-button text {
-  margin-left: 10rpx;
+  margin-left: 6rpx;
 }
+
+.composition-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+  padding: 14rpx 16rpx 0;
+}
+
+/* 点阵画布吃满右栏剩余高度（不再写死 300rpx，避免外壳被撑高后出现假空白） */
 
 .composition {
   position: relative;
   width: 100%;
-  height: 410rpx;
-  margin-top: 2rpx;
-}
-
-.composition::after {
-  position: absolute;
-  left: 50%;
-  bottom: 10rpx;
-  width: 330rpx;
-  height: 30rpx;
-  border-radius: 50%;
-  background: rgba(202, 145, 151, 0.1);
-  content: '';
-  transform: translateX(-50%);
-  filter: blur(12rpx);
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  border-radius: 18rpx;
+  background-color: #fffdfd;
+  background-image: radial-gradient(circle, rgba(214, 160, 170, 0.22) 2rpx, transparent 2rpx);
+  background-size: 26rpx 26rpx;
+  background-position: 0 0;
 }
 
 .composition-empty {
   position: absolute;
-  inset: 50rpx 80rpx 40rpx;
+  inset: 30rpx 40rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -142,7 +357,7 @@ button::after {
 .hanger {
   margin-bottom: 14rpx;
   color: #ef9caf;
-  font-size: 80rpx;
+  font-size: 56rpx;
   transform: rotate(180deg);
 }
 
@@ -150,50 +365,57 @@ button::after {
   position: absolute;
   display: block;
   z-index: 2;
+  /* 内联 style 由 layout 数据驱动，提供位置/尺寸/层级；
+     (x, y) 为图元中心点，故始终以自身中心为锚点。 */
+  transform: translate(-50%, -50%);
 }
 
+/* 兜底样式（布局数据未注入时的默认位置与尺寸），
+   实际渲染以内联 style 为准；数值与 Round 1.5.3 DEFAULT_LAYOUT 对齐，
+   left/top 为图元中心点坐标；hat 默认 scale 1.15 → 兜底 103×67。 */
 .layer-hat {
-  top: 2rpx;
-  left: 50%;
+  top: 38rpx;
+  left: 176rpx;
   z-index: 8;
-  width: 130rpx;
-  height: 92rpx;
-  transform: translateX(-50%);
+  width: 103rpx;
+  height: 67rpx;
 }
 
 .layer-top {
-  top: 74rpx;
-  left: 50%;
+  top: 122rpx;
+  left: 180rpx;
   z-index: 7;
-  width: 230rpx;
-  height: 174rpx;
-  transform: translateX(-50%);
+  width: 90rpx;
+  height: 114rpx;
 }
 
 .layer-bottom {
-  top: 210rpx;
-  left: 50%;
+  top: 216rpx;
+  left: 188rpx;
   z-index: 5;
-  width: 240rpx;
-  height: 156rpx;
-  transform: translateX(-50%);
+  width: 105rpx;
+  height: 133rpx;
 }
 
 .layer-shoes {
-  top: 332rpx;
-  left: 50%;
+  top: 276rpx;
+  left: 186rpx;
   z-index: 6;
-  width: 198rpx;
-  height: 76rpx;
-  transform: translateX(-45%);
+  width: 109rpx;
+  height: 48rpx;
 }
 
 .layer-bag {
-  top: 182rpx;
-  left: calc(50% + 74rpx);
+  top: 150rpx;
+  left: 286rpx;
   z-index: 10;
-  width: 146rpx;
-  height: 142rpx;
+  width: 80rpx;
+  height: 92rpx;
+}
+
+.layer-selected {
+  border-radius: 6rpx;
+  box-shadow: 0 0 0 3rpx #f64f78, 0 0 0 6rpx rgba(255, 255, 255, 0.85);
 }
 
 .layer-missing {
@@ -201,223 +423,241 @@ button::after {
   filter: grayscale(1);
 }
 
-.preview-caption {
+/* Round 1.5.1：画布底部不再堆工具按钮（上移/下移/移除改绑左栏槽位卡） */
+
+.canvas-hint {
   position: absolute;
-  right: 24rpx;
-  bottom: 22rpx;
+  right: 16rpx;
+  bottom: 12rpx;
+  left: 16rpx;
   z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.style-name {
-  color: #ef5277;
-  font-size: 24rpx;
-}
-
-.scene-name {
-  margin-top: 8rpx;
-  color: #685759;
-  font-size: 19rpx;
-}
-
-.deleted-warning {
-  position: absolute;
-  left: 22rpx;
-  right: 200rpx;
-  bottom: 18rpx;
-  z-index: 21;
-  color: #b45a69;
+  margin: 0;
+  color: #a58b90;
   font-size: 20rpx;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* 保存主按钮：两栏正下方、可选衣物区之前，全宽 */
+
+button.save-button {
+  display: flex;
+  width: 100%;
+  min-height: 92rpx;
+  align-items: center;
+  justify-content: center;
+  margin: 24rpx 0 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-radius: 46rpx;
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 600;
+  background: linear-gradient(110deg, #f47c9a, #ed557c);
+  box-shadow: 0 12rpx 24rpx rgba(232, 81, 120, 0.16);
+}
+
+.preview-caption {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 18rpx;
+  color: #968b90;
+  font-size: 22rpx;
   line-height: 1.4;
 }
 
-.selector-list {
-  padding-top: 12rpx;
+.caption-sep {
+  margin: 0 8rpx;
+  color: #c2a5ab;
 }
 
-.selector-row {
+.style-name,
+.scene-name {
+  color: inherit;
+  font-size: inherit;
+}
+
+.deleted-warning {
+  margin-top: 12rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 16rpx;
+  color: #b45a69;
+  font-size: 20rpx;
+  line-height: 1.5;
+  text-align: center;
+  background: #fff2f3;
+}
+
+/* ---- 「可选入库衣物」卡片区块 ---- */
+
+.pick-card {
+  margin-top: 24rpx;
+  padding: 24rpx;
+  border: 2rpx solid #f1ded8;
+  border-radius: 32rpx;
+  background: #fff;
+  box-shadow: 0 12rpx 30rpx rgba(190, 110, 125, 0.06);
+  box-sizing: border-box;
+}
+
+.pick-header {
   display: flex;
-  min-height: 150rpx;
   align-items: center;
-  padding: 12rpx 0;
+  justify-content: space-between;
 }
 
-.category-label {
-  display: flex;
-  width: 108rpx;
-  flex: 0 0 108rpx;
-  align-items: center;
-  flex-wrap: wrap;
+.pick-title {
+  color: #453e41;
+  font-size: 28rpx;
+  font-weight: 650;
 }
 
-.category-icon {
-  display: flex;
-  width: 34rpx;
-  height: 34rpx;
-  align-items: center;
-  justify-content: center;
-  margin-right: 8rpx;
-  border-radius: 10rpx;
-  color: #fff;
-  font-size: 17rpx;
-  background: #f45a7d;
+.pick-count {
+  color: #a48e91;
+  font-size: 20rpx;
 }
 
-.category-name {
-  color: #4e3739;
-  font-size: 25rpx;
-}
-
-.optional {
+.filter-scroll {
   width: 100%;
-  margin: 6rpx 0 0 42rpx;
-  color: #b3999e;
-  font-size: 17rpx;
-}
-
-.item-scroll {
-  width: calc(100vw - 156rpx);
+  margin-top: 18rpx;
   white-space: nowrap;
 }
 
-.item-track {
+.filter-track {
   display: inline-flex;
   gap: 14rpx;
-  padding: 4rpx 24rpx 4rpx 2rpx;
+  padding-right: 24rpx;
+}
+
+.filter-chip {
+  flex: 0 0 auto;
+  min-height: 60rpx;
+  padding: 0 26rpx;
+  border: 2rpx solid #eee2e2;
+  border-radius: 30rpx;
+  color: #655c60;
+  font-size: 24rpx;
+  line-height: 56rpx;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.filter-chip-active {
+  border-color: #f2829d;
+  color: #ed5d80;
+  background: #fff0f3;
+}
+
+/* Round 1.5.1：三列改四列定宽网格，minmax(0,1fr) 防长名溢出 */
+
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14rpx;
+  margin-top: 18rpx;
 }
 
 .item-card {
   position: relative;
-  display: inline-flex;
-  width: 124rpx;
-  height: 136rpx;
+  display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  margin: 0;
-  padding: 6rpx 6rpx 8rpx;
-  overflow: hidden;
-  border: 2rpx solid #f0dcdd;
+  padding: 8rpx 8rpx 10rpx;
+  border: 2rpx solid #f1ded8;
   border-radius: 20rpx;
-  color: #675456;
-  line-height: 1;
-  background: rgba(255, 255, 255, 0.78);
+  background: #fff;
+  box-sizing: border-box;
 }
+
+/* 未选中白底弱边框；选中粉边 + 浅粉底 + micro-check（.check-mark） */
 
 .item-card-active {
   border-color: #ff537d;
-  background: #fff7f8;
-  box-shadow: 0 8rpx 18rpx rgba(244, 83, 124, 0.1);
+  background: #fff4f6;
+  box-shadow: 0 8rpx 18rpx rgba(244, 83, 124, 0.12);
+}
+
+.item-frame {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
 }
 
 .item-image,
 .item-image-empty {
-  width: 102rpx;
-  height: 95rpx;
+  display: flex;
+  width: 100%;
+  height: 128rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12rpx;
 }
 
 .item-image-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 15rpx;
   color: #d18f9c;
-  font-size: 34rpx;
-  background: #fff0f2;
+  font-size: 40rpx;
+  background: #fff4f5;
 }
 
 .item-name {
-  width: 108rpx;
+  width: 100%;
   overflow: hidden;
-  margin-top: 5rpx;
-  font-size: 18rpx;
-  line-height: 22rpx;
+  margin-top: 6rpx;
+  color: #443c40;
+  font-size: 20rpx;
+  line-height: 26rpx;
+  text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .check-mark {
   position: absolute;
-  right: 4rpx;
-  bottom: 24rpx;
+  top: 6rpx;
+  right: 6rpx;
   display: flex;
   width: 28rpx;
   height: 28rpx;
   align-items: center;
   justify-content: center;
-  border: 2rpx solid #fff;
   border-radius: 50%;
   color: #fff;
-  font-size: 18rpx;
-  background: #ff4f78;
-}
-
-.none-card {
-  color: #a48e91;
-}
-
-.none-symbol {
-  display: flex;
-  width: 72rpx;
-  height: 72rpx;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 8rpx;
-  border: 2rpx dashed #e4cdd0;
-  border-radius: 50%;
-  font-size: 30rpx;
+  font-size: 16rpx;
+  background: #ef5d80;
 }
 
 .category-empty {
   display: flex;
-  min-height: 100rpx;
-  flex: 1;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20rpx;
-  border: 2rpx dashed #efd9dc;
+  margin-top: 18rpx;
+  padding: 24rpx 20rpx;
+  border: 2rpx dashed #e4cdd0;
   border-radius: 20rpx;
   color: #9a8588;
-  font-size: 21rpx;
+  font-size: 22rpx;
   background: rgba(255, 255, 255, 0.5);
 }
 
 .category-empty button {
-  min-height: 58rpx;
+  min-height: 56rpx;
   margin: 0;
   padding: 0 16rpx;
-  color: #ed5276;
-  font-size: 21rpx;
-  line-height: 58rpx;
+  color: #e75e7d;
+  font-size: 22rpx;
+  line-height: 56rpx;
   background: transparent;
-}
-
-.save-button {
-  display: flex;
-  width: 100%;
-  min-height: 90rpx;
-  align-items: center;
-  justify-content: center;
-  margin: 24rpx 0 0;
-  border-radius: 46rpx;
-  color: #fff;
-  font-size: 28rpx;
-  font-weight: 600;
-  line-height: 90rpx;
-  background: linear-gradient(110deg, #ff7d98, #f74e79);
-  box-shadow: 0 14rpx 28rpx rgba(237, 79, 118, 0.2);
-}
-
-.save-arrow {
-  margin-left: 16rpx;
-  font-size: 34rpx;
 }
 
 .bottom-space {
   height: calc(env(safe-area-inset-bottom) + 36rpx);
 }
+
+/* ---- 加载 / 错误状态 ---- */
 
 .state-card {
   display: flex;
@@ -481,6 +721,8 @@ button::after {
   line-height: 68rpx;
   background: #fff5f6;
 }
+
+/* ---- 保存弹层 ---- */
 
 .sheet-mask {
   position: fixed;
@@ -607,11 +849,15 @@ button::after {
   grid-template-columns: .72fr 1fr 1fr;
 }
 
-.sheet-primary,
-.sheet-secondary,
-.sheet-cancel {
+button.sheet-primary,
+button.sheet-secondary,
+button.sheet-cancel {
+  width: 100%;
+  box-sizing: border-box;
   min-height: 82rpx;
   margin: 0;
+  padding-left: 0;
+  padding-right: 0;
   border-radius: 42rpx;
   font-size: 25rpx;
   line-height: 82rpx;

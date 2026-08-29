@@ -14,6 +14,16 @@ Module._load = function load(request, parent, isMain) {
           storage: "local",
           uploadState: "failed"
         });
+      },
+      persistLocalImage(path) {
+        return Promise.resolve(path);
+      },
+      clearTempImage() {
+        return Promise.resolve(true);
+      },
+      unregisterTempImage() {},
+      sweepExpiredTempImages() {
+        return Promise.resolve(0);
       }
     };
   }
@@ -29,10 +39,9 @@ delete global.Page;
     data: { ...definition.data, localImagePath: "wxfile://tmp/item.jpg" },
     setData(patch) { Object.assign(this.data, patch); }
   };
-  await page.uploadAndRecognize();
+  await page.uploadTempImage();
   assert.notStrictEqual(page.data.uploadState, "success");
   assert.strictEqual(page.data.uploadState, "error");
-  assert(page.data.aiMessage.includes("上传失败"));
   console.log("upload failure state tests passed");
 })().catch((error) => {
   console.error(error);

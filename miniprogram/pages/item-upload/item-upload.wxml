@@ -1,19 +1,19 @@
 <view class="page">
   <view class="steps">
-    <view class="step {{step >= 1 ? 'active' : ''}}"><text class="step-number">1</text><text>上传图片</text></view>
+    <view class="step {{step > 1 ? 'done' : ''}} {{step === 1 ? 'active' : ''}}"><text class="step-number">1</text><text>上传图片</text></view>
     <view class="step-line {{step >= 2 ? 'active-line' : ''}}"></view>
-    <view class="step {{step >= 2 ? 'active' : ''}}"><text class="step-number">2</text><text>识别信息</text></view>
+    <view class="step {{step > 2 ? 'done' : ''}} {{step === 2 ? 'active' : ''}}"><text class="step-number">2</text><text>填写信息</text></view>
     <view class="step-line {{step >= 3 ? 'active-line' : ''}}"></view>
-    <view class="step {{step >= 3 ? 'active' : ''}}"><text class="step-number">3</text><text>确认保存</text></view>
+    <view class="step {{step === 3 ? 'active' : ''}}"><text class="step-number">3</text><text>确认保存</text></view>
   </view>
 
   <block wx:if="{{step === 1}}">
-    <view class="upload-panel">
+    <view class="upload-panel {{localImagePath ? 'has-image' : ''}}">
       <view class="upload-preview" wx:if="{{localImagePath}}">
         <image src="{{localImagePath}}" mode="aspectFit" />
       </view>
       <block wx:else>
-        <text class="hanger-icon">♡</text>
+        <view class="upload-icon"><text class="hanger-icon">♡</text></view>
         <text class="upload-title">上传或拍摄单品图片</text>
         <text class="upload-help">支持 JPG / PNG / WebP 格式，建议主体清晰、背景简洁</text>
       </block>
@@ -23,9 +23,9 @@
       </view>
     </view>
 
-    <view class="tip-card">
-      <text class="section-title">识别示例</text>
-      <text class="section-copy">AI 将尝试识别单品的名称、分类、主颜色、季节、风格与厚度，所有结果都由你最终确认。</text>
+    <view class="tip-block">
+      <text class="tip-title">上传提示</text>
+      <text class="section-copy">图片将保存为单品主图，上传后可手动填写名称、分类、季节、风格等属性。</text>
       <view class="tips">
         <text>✓ 保持图片清晰、光线充足</text>
         <text>✓ 单品主体完整，尽量避免裁切</text>
@@ -39,13 +39,12 @@
     <view class="recognition-card">
       <image class="recognition-image" src="{{imageUrl || localImagePath}}" mode="aspectFit" />
       <view class="recognition-status">
-        <text wx:if="{{aiState === 'loading'}}" class="status-title">正在识别单品信息…</text>
-        <text wx:elif="{{aiState === 'success'}}" class="status-title success">✓ AI 已识别完成</text>
-        <text wx:else class="status-title warning">AI 未能完成识别</text>
-        <text class="status-copy">{{aiState === 'success' ? '请检查信息是否准确，可修改后保存' : (aiMessage || '可直接手动填写，不影响保存')}}</text>
+        <text wx:if="{{uploadState === 'uploading'}}" class="status-title">正在上传图片…</text>
+        <text wx:elif="{{uploadState === 'success'}}" class="status-title success">✓ 图片已上传</text>
+        <text wx:elif="{{uploadState === 'error'}}" class="status-title warning">图片上传失败</text>
+        <text wx:else class="status-title">等待上传</text>
+        <text class="status-copy">{{uploadState === 'success' ? '请填写单品信息，确认后保存' : '可直接手动填写，不影响保存'}}</text>
         <button wx:if="{{uploadState === 'error'}}" class="mini-button" bindtap="retryUpload">重试上传</button>
-        <button wx:else class="mini-button" loading="{{aiState === 'loading'}}" disabled="{{aiState === 'loading'}}" bindtap="reRecognize">重新识别</button>
-        <button wx:if="{{aiState === 'error'}}" class="text-button" bindtap="continueManually">改为手动填写</button>
       </view>
     </view>
 
@@ -102,7 +101,7 @@
 
     <view class="form-card">
       <text class="section-title">购买信息（选填）</text>
-      <text class="safe-note">AI 不会根据图片猜测购买信息或尺码</text>
+      <text class="safe-note">购买信息不会被图片内容生成，请手动填写</text>
       <view class="two-column">
         <view class="field half"><text class="field-label">购买价格（元）</text><input class="input" type="digit" maxlength="10" placeholder="0.00" value="{{form.purchasePrice}}" data-field="purchasePrice" bindinput="onInput" /></view>
         <view class="field half"><text class="field-label">购买日期</text><picker mode="date" end="{{today}}" value="{{form.purchaseDate}}" bindchange="onDateChange"><view class="input picker">{{form.purchaseDate || '请选择'}}</view></picker></view>
@@ -111,8 +110,8 @@
     </view>
 
     <view class="form-card">
-      <view class="title-action"><text class="section-title">✦ AI 单品介绍</text><button class="mini-button" bindtap="regenerateDescription">重新生成</button></view>
-      <textarea class="textarea" maxlength="300" placeholder="可编辑 AI 建议的介绍" value="{{form.aiDescription}}" data-field="aiDescription" bindinput="onInput" />
+      <view class="title-action"><text class="section-title">✦ 单品介绍</text></view>
+      <textarea class="textarea" maxlength="300" placeholder="可手动填写单品的文字介绍" value="{{form.aiDescription}}" data-field="aiDescription" bindinput="onInput" />
     </view>
 
     <view class="form-card">

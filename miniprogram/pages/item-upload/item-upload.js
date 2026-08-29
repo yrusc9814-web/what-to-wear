@@ -67,11 +67,9 @@ Page({
     localImagePath: '',
     imageUrl: '',
     fileId: '',
+    tempFileId: '',
     uploadState: 'idle',
-    aiState: 'idle',
-    aiMessage: '',
     saving: false,
-    dirtyByUser: false,
     today: todayString(),
     form: Object.assign({}, EMPTY_FORM),
     selectedSeasons: {},
@@ -81,6 +79,10 @@ Page({
     styleOptions: STYLES,
     colorOptions: PRIMARY_COLORS,
     thicknessOptions: THICKNESSES
+  },
+
+  onLoad() {
+    appService.sweepExpiredTempImages()
   },
 
   chooseCamera() {
@@ -109,16 +111,16 @@ Page({
           })
           return
         }
+        const stablePath = await appService.persistLocalImage(file.tempFilePath)
+        this._imageGeneration = (this._imageGeneration || 0) + 1
         this.setData({
-          localImagePath: file.tempFilePath,
+          localImagePath: stablePath,
           imageUrl: '',
           fileId: '',
           uploadState: 'idle',
-          aiState: 'idle',
-          aiMessage: '',
           step: 1
         })
-        this.uploadAndRecognize()
+        this.uploadTempImage()
       },
       fail: (error) => {
         if (error && /cancel/i.test(error.errMsg || '')) return
@@ -131,99 +133,54 @@ Page({
     })
   },
 
-  async uploadAndRecognize() {
-    if (!this.data.localImagePath) return
-    this.setData({ uploadState: 'uploading', aiState: 'loading', aiMessage: '', step: 2 })
+  async uploadTempImage() {
+    const localPath = this.data.localImagePath
+    if (!localPath) return
+    const generation = this._imageGeneration || 0
+    if (this._uploadingGeneration === generation) return
+    this._uploadingGeneration = generation
+    const previousTemp = this.data.tempFileId || ''
+    this.setData({ uploadState: 'uploading', step: 2 })
     try {
-      const uploaded = await appService.uploadImage(this.data.localImagePath)
+      if (previousTemp) appService.clearTempImage(previousTemp)
+      const uploaded = await appService.uploadImage(localPath, undefined, undefined, 'temp')
+      if (generation !== (this._imageGeneration || 0)) {
+        // 旧代际上传结果作废：若已生成临时云图，立即回收
+        if (uploaded && uploaded.uploadState === 'success' && uploaded.fileId) {
+          appService.clearTempImage(uploaded.fileId)
+        }
+        return
+      }
       if (uploaded.uploadState !== 'success' || !uploaded.fileId) {
         throw new Error('图片上传失败，已保留本地预览，请重试')
       }
       this.setData({
-        imageUrl: uploaded.imageUrl || this.data.localImagePath,
+        imageUrl: uploaded.imageUrl || localPath,
         fileId: uploaded.fileId || '',
-        uploadState: 'success'
+        tempFileId: uploaded.fileId || '',
+        uploadState: 'success',
+        step: 2
       })
-      await this.recognize(false)
     } catch (error) {
-      this.setData({
-        uploadState: 'error',
-        aiState: 'error',
-        aiMessage: (error && error.message) || '图片上传失败，可重试或先保留图片'
-      })
+      if (generation !== (this._imageGeneration || 0)) return
+      this.setData({ uploadState: 'error', step: 2 })
+    } finally {
+      if (this._uploadingGeneration === generation) this._uploadingGeneration = 0
     }
   },
 
   retryUpload() {
-    this.uploadAndRecognize()
-  },
-
-  async recognize(askBeforeOverwrite) {
-    const execute = async () => {
-      this.setData({ aiState: 'loading', aiMessage: '' })
-      try {
-        const result = await appService.recognizeWardrobeItem({
-          imageUrl: this.data.fileId || this.data.imageUrl || this.data.localImagePath,
-          fileId: this.data.fileId,
-          name: this.data.form.name
-        })
-        const nextForm = Object.assign({}, this.data.form, {
-          name: result.name || '',
-          category: result.category || '',
-          seasons: Array.isArray(result.seasons) ? result.seasons : [],
-          styles: Array.isArray(result.styles) ? result.styles : [],
-          primaryColor: result.primaryColor || '',
-          thickness: result.thickness || '',
-          aiDescription: result.aiDescription || ''
-        })
-        this.setData({
-          form: nextForm,
-          selectedSeasons: this.toSelectionMap(nextForm.seasons),
-          selectedStyles: this.toSelectionMap(nextForm.styles),
-          imageUrl: result.imageUrl || this.data.imageUrl,
-          fileId: result.fileId || this.data.fileId,
-          aiState: 'success',
-          aiMessage: '',
-          dirtyByUser: false,
-          step: 2
-        })
-      } catch (error) {
-        this.setData({
-          aiState: 'error',
-          aiMessage: (error && error.message) || 'AI 识别失败，请手动填写后继续',
-          step: 2
-        })
-      }
-    }
-
-    if (askBeforeOverwrite && this.data.dirtyByUser) {
-      wx.showModal({
-        title: '重新识别',
-        content: '新的 AI 建议将替换你已修改的识别字段，购买信息、尺码和备注不会改变。',
-        confirmText: '继续识别',
-        success: ({ confirm }) => { if (confirm) execute() }
-      })
-      return
-    }
-    return execute()
-  },
-
-  reRecognize() {
-    this.recognize(true)
-  },
-
-  continueManually() {
-    this.setData({ aiState: 'manual', step: 2 })
+    this.uploadTempImage()
   },
 
   onInput(event) {
     const field = event.currentTarget.dataset.field
-    this.setData({ [`form.${field}`]: event.detail.value, dirtyByUser: true })
+    this.setData({ [`form.${field}`]: event.detail.value })
   },
 
   onSingleSelect(event) {
     const field = event.currentTarget.dataset.field
-    this.setData({ [`form.${field}`]: readValue(event), dirtyByUser: true })
+    this.setData({ [`form.${field}`]: readValue(event) })
   },
 
   onMultiSelect(event) {
@@ -233,8 +190,7 @@ Page({
     const selectedField = field === 'seasons' ? 'selectedSeasons' : 'selectedStyles'
     this.setData({
       [`form.${field}`]: nextValues,
-      [selectedField]: this.toSelectionMap(nextValues),
-      dirtyByUser: true
+      [selectedField]: this.toSelectionMap(nextValues)
     })
   },
 
@@ -246,11 +202,7 @@ Page({
   },
 
   onDateChange(event) {
-    this.setData({ 'form.purchaseDate': event.detail.value, dirtyByUser: true })
-  },
-
-  async regenerateDescription() {
-    this.recognize(true)
+    this.setData({ 'form.purchaseDate': event.detail.value })
   },
 
   goToConfirm() {
@@ -278,6 +230,29 @@ Page({
     return ''
   },
 
+  async resolveFormalImage(localPath) {
+    let uploaded = null
+    try {
+      uploaded = await appService.uploadImage(localPath, undefined, undefined, 'clothing')
+    } catch (error) {
+      uploaded = null
+    }
+    if (uploaded) {
+      if (uploaded.storage === 'cloud' && uploaded.fileId) {
+        return { imageUrl: uploaded.imageUrl || localPath, fileId: uploaded.fileId }
+      }
+      if (uploaded.uploadState === 'failed' || uploaded.errorCode === 'UPLOAD_FAILED') {
+        const error = new Error('图片上传失败，请重试')
+        error.code = uploaded.errorCode
+        throw error
+      }
+      // 离线 / 身份未确认：恢复 V1.4 语义，本地路径 + 空 fileId 继续保存
+      return { imageUrl: uploaded.imageUrl || localPath, fileId: '' }
+    }
+    // 在线上传异常：不引用 tmp 路径，抛错提示重试
+    throw new Error('图片上传失败，请重试')
+  },
+
   async saveItem() {
     if (this.data.saving) return
     const message = this.validate()
@@ -287,13 +262,15 @@ Page({
     }
     this.setData({ saving: true })
     wx.showLoading({ title: '保存中', mask: true })
+    this._imageGeneration = (this._imageGeneration || 0) + 1
+    const tempFileId = this.data.tempFileId || ''
     try {
       let imageUrl = this.data.imageUrl
       let fileId = this.data.fileId
-      if (this.data.uploadState !== 'success') {
-        const uploaded = await appService.uploadImage(this.data.localImagePath)
-        imageUrl = uploaded.imageUrl || this.data.localImagePath
-        fileId = uploaded.fileId || ''
+      if (this.data.localImagePath) {
+        const resolved = await this.resolveFormalImage(this.data.localImagePath)
+        imageUrl = resolved.imageUrl
+        fileId = resolved.fileId
       }
       const form = this.data.form
       const saved = await appService.createWardrobeItem({
@@ -314,6 +291,12 @@ Page({
         note: form.note.trim(),
         deletedAt: null
       })
+      this._saved = true
+      appService.unregisterTempImage(fileId)
+      if (tempFileId && tempFileId !== fileId) {
+        appService.clearTempImage(tempFileId)
+        this.setData({ tempFileId: '' })
+      }
       if (saved.syncStatus === 'synced') {
         wx.showToast({ title: '保存成功', icon: 'success' })
         setTimeout(() => wx.navigateBack(), 500)
@@ -333,13 +316,30 @@ Page({
     }
   },
 
+  cleanupTempImage() {
+    const tempFileId = this.data.tempFileId || ''
+    if (!tempFileId) return
+    appService.clearTempImage(tempFileId)
+    this.setData({ tempFileId: '', uploadState: 'idle', fileId: '', imageUrl: '' })
+  },
+
   cancel() {
     wx.showModal({
       title: '放弃上传？',
       content: '当前已选图片和填写的信息将不会保存。',
       confirmText: '放弃',
       confirmColor: '#d85d70',
-      success: ({ confirm }) => { if (confirm) wx.navigateBack() }
+      success: ({ confirm }) => {
+        if (confirm) {
+          this.cleanupTempImage()
+          wx.navigateBack()
+        }
+      }
     })
+  },
+
+  onUnload() {
+    if (this._saved) return
+    this.cleanupTempImage()
   }
 })

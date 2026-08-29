@@ -1,4 +1,5 @@
 const appService = require('../../services/app-service')
+const outfitLayout = require('../../services/outfit-layout')
 const {
   CATEGORIES,
   SEASONS,
@@ -75,11 +76,36 @@ Page({
     saveOpen: false,
     saving: false,
     seasonOptions: SEASONS,
-    styleOptions: STYLES
+    styleOptions: STYLES,
+    // 自由画布布局：仅页面内 data 状态，不入云、不进保存协议（V1.5 第二轮接云端持久化）
+    layouts: null,
+    // 派生渲染层：由 layouts 计算得到（width/height = 基尺寸 × scale），
+    // 所有写 layouts 的入口统一经过 buildRenderLayers 刷新
+    renderLayers: {},
+    selectedSlot: '',
+    selectedHint: '点击画布中的单品可选中，拖动调整位置，双指缩放大小',
+    // 「可选入库衣物」筛选胶囊（仅视觉筛选，不改选择语义）
+    activeFilter: 'all',
+    filterOptions: [{ value: 'all', label: '全部' }].concat(CATEGORIES.map((item) => ({ value: item.value, label: item.label }))),
+    // 左栏槽位卡与网格卡均为派生展示数据，由 refreshPresentation 维护
+    slotList: [],
+    isAllSlotsEmpty: true,
+    selectedCount: 0,
+    gridItems: [],
+    gridEmpty: true
   },
 
   onLoad() {
     this.hasLoaded = false
+    // 画布布局初始化状态：hasLoadedLayout 标记是否已建立布局；
+    // lastLayoutFingerprint 记录最近一次建立/重建布局时的 draft 内容指纹，
+    // 用于 onShow 时判断「draft 是否真的变化」，前后台切换不丢用户画布调整。
+    this.hasLoadedLayout = false
+    this.lastLayoutFingerprint = ''
+    const info = (wx.getWindowInfo && wx.getWindowInfo()) || wx.getSystemInfoSync()
+    this.windowWidth = info.windowWidth || 375
+    this.rpxPerPx = 750 / this.windowWidth
+    this._gesture = null
   },
 
   onShow() {
@@ -99,10 +125,29 @@ Page({
         .map(presentItem)
       const storedDraft = appService.getOutfitDraft()
       const draft = this.reconcileDraft(storedDraft || emptyDraft(), wardrobe)
-      this.setData({ wardrobe, draft, state: 'ready' })
+      // 布局重建策略：仅在首次加载（尚未初始化）或 draft 内容指纹变化（套装内容
+      // 真的变了）时重置 layouts；onShow 等场景保留用户已调整的布局。
+      const fingerprint = SLOT_ORDER.map((slot) => itemId(draft.slots[slot])).join('|')
+      const layoutsChanged = !this.hasLoadedLayout || fingerprint !== this.lastLayoutFingerprint
+      const layouts = layoutsChanged
+        ? outfitLayout.defaultLayouts()
+        : (this.data.layouts || outfitLayout.defaultLayouts())
+      const selectedSlot = layoutsChanged ? '' : this.data.selectedSlot
+      this.lastLayoutFingerprint = fingerprint
+      this.hasLoadedLayout = true
+      this.setData({
+        wardrobe,
+        draft,
+        layouts,
+        renderLayers: this.buildRenderLayers(layouts, selectedSlot),
+        selectedSlot,
+        selectedHint: layoutsChanged ? '点击画布中的单品可选中，拖动调整位置，双指缩放大小' : this.data.selectedHint,
+        state: 'ready'
+      })
       this.refreshPresentation()
       if (storedDraft) appService.persistOutfitDraft(draft)
       this.hasLoaded = true
+      this.measureCanvas()
     } catch (error) {
       this.setData({
         state: 'error',
@@ -145,12 +190,37 @@ Page({
         .filter((item) => item.category === category.value)
         .map((item) => ({ ...item, selected: item.id === itemId(draft.slots[category.value]) }))
     }))
+    const slotList = SLOT_ORDER.map((slot) => {
+      const category = CATEGORIES.find((item) => item.value === slot)
+      const item = draft.slots[slot]
+      return {
+        slot,
+        label: category ? category.label : slot,
+        filled: Boolean(item),
+        name: item ? item.name : '',
+        imageUrl: item ? item.imageUrl || '' : '',
+        initial: item ? item.initial : ''
+      }
+    })
+    const isAllSlotsEmpty = slotList.every((entry) => !entry.filled)
+    const selectedCount = slotList.filter((entry) => entry.filled).length
+    const activeFilter = this.data.activeFilter || 'all'
+    const filteredGroups = activeFilter === 'all' ? groups : groups.filter((item) => item.value === activeFilter)
+    const gridItems = filteredGroups.reduce((list, group) => {
+      group.items.forEach((piece) => list.push({ ...piece, category: group.value }))
+      return list
+    }, [])
     const missingSlotLabels = SLOT_ORDER
       .filter((slot) => draft.slots[slot] && draft.slots[slot].missing)
       .map((slot) => CATEGORIES.find((item) => item.value === slot).label)
     const style = draft.style || this.inferStyle(draft.slots)
     this.setData({
       groups,
+      slotList,
+      isAllSlotsEmpty,
+      selectedCount,
+      gridItems,
+      gridEmpty: gridItems.length === 0,
       previewSlots: draft.slots,
       missingSlotLabels,
       missingSlotText: missingSlotLabels.join('、'),
@@ -185,6 +255,226 @@ Page({
     const selected = id ? this.data.wardrobe.find((item) => item.id === id) || null : null
     const slots = { ...this.data.draft.slots, [category]: selected }
     this.persistDraft({ slots, dirty: true })
+    if (this.data.selectedSlot === category && !selected) {
+      this.deselectSlot()
+    }
+  },
+
+  // ---- 顶部分段切换（试衣间 = 本页，滚动回顶；我的搭配 = 跳转 saved-outfits）----
+
+  onModeSwitch(event) {
+    const mode = event.currentTarget.dataset.mode
+    if (mode === 'dressing') {
+      wx.pageScrollTo({ scrollTop: 0, duration: 200 })
+    } else if (mode === 'saved') {
+      this.goSavedOutfits()
+    }
+  },
+
+  // ---- 「可选入库衣物」筛选胶囊 ----
+
+  onFilterTap(event) {
+    const value = event.currentTarget.dataset.value
+    if (!value || this.data.activeFilter === value) return
+    this.setData({ activeFilter: value })
+    this.refreshPresentation()
+  },
+
+  // ---- 左栏槽位卡点击：选中画布对应图元（与画布高亮双向联动）----
+
+  onSlotCardTap(event) {
+    const slot = event.currentTarget.dataset.slot
+    if (!SLOT_ORDER.includes(slot)) return
+    this.selectSlot(slot)
+  },
+
+  // ---- 自由画布：派生渲染层 ----
+
+  buildRenderLayers(layouts, selectedSlot) {
+    const renderLayers = {}
+    outfitLayout.SLOT_ORDER.forEach((slot) => {
+      renderLayers[slot] = {
+        ...outfitLayout.toRenderLayer(slot, layouts && layouts[slot]),
+        selected: slot === selectedSlot
+      }
+    })
+    return renderLayers
+  },
+
+  refreshRenderLayers() {
+    if (!this.data.layouts) return
+    this.setData({ renderLayers: this.buildRenderLayers(this.data.layouts, this.data.selectedSlot) })
+  },
+
+  // ---- 自由画布：选中 ----
+
+  selectSlot(slot) {
+    if (!this.data.draft.slots[slot]) {
+      this.deselectSlot()
+      return
+    }
+    const category = CATEGORIES.find((item) => item.value === slot)
+    this.setData({
+      selectedSlot: slot,
+      selectedHint: `${category ? category.label : slot} 已选中，可拖动、缩放，或用左侧卡片上的 ↑ ↓ × 调整层级或移除`
+    })
+    this.refreshRenderLayers()
+  },
+
+  deselectSlot() {
+    this.setData({
+      selectedSlot: '',
+      selectedHint: '点击画布中的单品可选中，拖动调整位置，双指缩放大小'
+    })
+    this.refreshRenderLayers()
+  },
+
+  measureCanvas() {
+    if (typeof wx === 'undefined' || typeof wx.createSelectorQuery !== 'function') return
+    const query = wx.createSelectorQuery()
+    query.select('.composition').boundingClientRect((rect) => {
+      if (!rect || !rect.width || !rect.height) return
+      outfitLayout.setCanvasSize(rect.width * this.rpxPerPx, rect.height * this.rpxPerPx)
+    }).exec()
+  },
+
+  onCanvasTap() {
+    this.deselectSlot()
+  },
+
+  // ---- 自由画布：单指拖动 / 双指捏合缩放 ----
+
+  touchDistance(touches) {
+    if (!touches || touches.length < 2) return 0
+    const dx = touches[1].clientX - touches[0].clientX
+    const dy = touches[1].clientY - touches[0].clientY
+    return Math.sqrt(dx * dx + dy * dy)
+  },
+
+  onLayerTouchStart(event) {
+    if (this.data.state !== 'ready' || !this.data.layouts) return
+    const slot = event.currentTarget.dataset.slot
+    if (!slot || !SLOT_ORDER.includes(slot) || !this.data.layouts[slot]) return
+    const gesture = this._gesture
+    if (gesture && gesture.active) {
+      // 第二根手指落下（捏合开始），以当前间距为缩放基准
+      if (event.touches.length >= 2) {
+        gesture.pinchStartDist = this.touchDistance(event.touches)
+        gesture.pinchStartScale = this.data.layouts[gesture.slot].scale
+      }
+      return
+    }
+    const touch = event.touches[0]
+    this._gesture = {
+      slot,
+      active: true,
+      moved: false,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      startLayout: { ...this.data.layouts[slot] },
+      pinchStartDist: 0,
+      pinchStartScale: 1
+    }
+    this.selectSlot(slot)
+  },
+
+  applyLayout(slot, patch, clamp) {
+    const layouts = this.data.layouts
+    const current = layouts && layouts[slot]
+    if (!current) return
+    let next = { ...current, ...patch }
+    if (clamp) next = outfitLayout.clampToCanvas(next, slot)
+    const nextLayouts = { ...layouts, [slot]: next }
+    this.setData({
+      layouts: nextLayouts,
+      renderLayers: this.buildRenderLayers(nextLayouts, this.data.selectedSlot)
+    })
+  },
+
+  onLayerTouchMove(event) {
+    const gesture = this._gesture
+    if (!gesture || !gesture.active) return
+    const layouts = this.data.layouts
+    if (!layouts || !layouts[gesture.slot]) return
+    if (event.touches.length >= 2) {
+      // 双指捏合：按间距比例缩放，限幅 [0.3, 3]
+      const dist = this.touchDistance(event.touches)
+      if (!gesture.pinchStartDist) {
+        gesture.pinchStartDist = dist
+        gesture.pinchStartScale = layouts[gesture.slot].scale
+      } else if (dist > 0) {
+        const scale = outfitLayout.clampScale((gesture.pinchStartScale * dist) / gesture.pinchStartDist)
+        this.applyLayout(gesture.slot, { scale }, true)
+      }
+      gesture.moved = true
+      return
+    }
+    // 单指拖动：以手势起点为基准计算位移（rpx），避免累加漂移
+    const touch = event.touches[0]
+    const deltaX = (touch.clientX - gesture.startX) * this.rpxPerPx
+    const deltaY = (touch.clientY - gesture.startY) * this.rpxPerPx
+    if (Math.abs(deltaX) + Math.abs(deltaY) > 1) gesture.moved = true
+    this.applyLayout(gesture.slot, {
+      x: gesture.startLayout.x + deltaX,
+      y: gesture.startLayout.y + deltaY
+    }, true)
+  },
+
+  onLayerTouchEnd(event) {
+    const gesture = this._gesture
+    if (!gesture || !gesture.active) return
+    if (event.touches && event.touches.length === 1) {
+      // 捏合后剩一指：重新以剩余手指为拖拽基准
+      gesture.startX = event.touches[0].clientX
+      gesture.startY = event.touches[0].clientY
+      const current = this.data.layouts && this.data.layouts[gesture.slot]
+      if (current) gesture.startLayout = { ...current }
+      gesture.pinchStartDist = 0
+      return
+    }
+    this._gesture = null
+  },
+
+  // ---- 自由画布：图层与重置工具 ----
+  // Round 1.5.1：上移/下移改绑到左栏槽位卡内的 ↑ ↓ 小按钮（data-slot 指向该卡槽位），
+  // 未传事件时回退当前选中槽位；语义仍复用 outfitLayout.moveLayer，命令本身不变。
+
+  onLayerUp(event) {
+    this.moveSelectedLayer(1, event)
+  },
+
+  onLayerDown(event) {
+    this.moveSelectedLayer(-1, event)
+  },
+
+  moveSelectedLayer(delta, event) {
+    const slot = (event && event.currentTarget && event.currentTarget.dataset.slot) || this.data.selectedSlot
+    if (!slot || !SLOT_ORDER.includes(slot)) return
+    if (!this.data.draft.slots[slot]) return
+    const nextLayouts = outfitLayout.moveLayer(this.data.layouts, slot, delta)
+    this.setData({
+      selectedSlot: slot,
+      layouts: nextLayouts,
+      renderLayers: this.buildRenderLayers(nextLayouts, slot)
+    })
+  },
+
+  onResetSlot() {
+    const slot = this.data.selectedSlot
+    if (!slot) return
+    const nextLayouts = outfitLayout.resetSlot(this.data.layouts, slot)
+    this.setData({
+      layouts: nextLayouts,
+      renderLayers: this.buildRenderLayers(nextLayouts, slot)
+    })
+  },
+
+  onResetAll() {
+    const nextLayouts = outfitLayout.defaultLayouts()
+    this.setData({
+      layouts: nextLayouts,
+      renderLayers: this.buildRenderLayers(nextLayouts, this.data.selectedSlot)
+    })
   },
 
   onShuffle() {
@@ -282,6 +572,8 @@ Page({
     return ''
   },
 
+  // 保存协议本轮不变：payload 不携带画布 layout（layout 仅存页面 data 状态，
+  // V1.5 第二轮接云端持久化）
   buildPayload() {
     const { draft } = this.data
     return {

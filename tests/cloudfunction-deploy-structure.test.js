@@ -14,7 +14,10 @@ const mutationFunctions = [
   "deleteClothing",
   "saveOutfit",
   "updateSavedOutfit",
-  "deleteOutfitRecord"
+  "deleteOutfitRecord",
+  "saveOutfitReference",
+  "updateOutfitReference",
+  "deleteOutfitReference"
 ];
 
 function filesUnder(directory) {

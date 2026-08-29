@@ -24,7 +24,8 @@ const STORAGE = {
   legacyQuarantine: "xiaoyichu_v14_legacy_quarantine",
   wardrobeView: "xiaoyichu_v14_wardrobe_view",
   legacyWardrobe: "chuanda_wardrobe_items",
-  legacyOutfits: "chuanda_outfit_records"
+  legacyOutfits: "chuanda_outfit_records",
+  tempImages: "xiaoyichu_v14_temp_images"
 };
 
 const UNCONFIRMED_SCOPE = "current_wechat_user";
@@ -45,6 +46,7 @@ const untrustedLegacySources = new Set();
 let identitySessionId = uniqueId("identity");
 const MAX_QUARANTINE_BYTES = 200 * 1024;
 const QUARANTINE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const TEMP_IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
 const SYNC_LEASE_MS = 30 * 1000;
 const SYNC_LEASE_POLL_MS = 20;
 
@@ -732,7 +734,14 @@ function persistLocalImage(localPath) {
   });
 }
 
-async function uploadImage(localPath, scope, guard) {
+function imageCloudPath(userScope, extension, purpose) {
+  const stamp = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  if (purpose === "temp") return `wardrobe/${userScope}/tmp/${stamp}.${extension}`;
+  if (purpose === "reference") return `wardrobe/${userScope}/references/${stamp}.${extension}`;
+  return `wardrobe/${userScope}/${stamp}.${extension}`;
+}
+
+async function uploadImage(localPath, scope, guard, purpose = "clothing") {
   const isTemporaryHttpPath = /^https?:\/\/tmp\//i.test(localPath || "");
   if (!localPath || (isOwnedStableCloudImage(localPath, scope)) || (/^https?:\/\//.test(localPath) && !isTemporaryHttpPath)) {
     const stable = isOwnedStableCloudImage(localPath, scope);
@@ -758,17 +767,111 @@ async function uploadImage(localPath, scope, guard) {
     return { imageUrl: savedPath, fileId: "", storage: "local", uploadState: "pending", errorCode: "IDENTITY_UNCONFIRMED" };
   }
   const extension = ((localPath.match(/\.([a-z0-9]+)(?:\?.*)?$/i) || [])[1] || "jpg").toLowerCase();
-  const cloudPath = `wardrobe/${userScope}/${Date.now()}_${Math.random().toString(16).slice(2)}.${extension}`;
+  const cloudPath = imageCloudPath(userScope, extension, purpose);
   try {
     if (guard) guard();
     const result = await wx.cloud.uploadFile({ cloudPath, filePath: localPath });
     if (guard) guard();
+    if (purpose === "temp") registerTempImage(result.fileID, userScope);
     return { imageUrl: result.fileID, fileId: result.fileID, storage: "cloud", uploadState: "success" };
   } catch (error) {
     console.warn("cloud image upload failed; local image retained", error);
     const savedPath = await persistLocalImage(localPath);
     return { imageUrl: savedPath, fileId: "", storage: "local", uploadState: "failed", errorCode: "UPLOAD_FAILED" };
   }
+}
+
+function tempRegistryKey(scope) {
+  return scopedKey(STORAGE.tempImages, scope) || STORAGE.tempImages;
+}
+
+function tempFileScope(fileId) {
+  const match = String(fileId || "").match(/\/wardrobe\/([^/]+)\/tmp\//);
+  return match ? match[1] : null;
+}
+
+function readTempRegistry(scope = currentUserScope()) {
+  try {
+    const value = wx.getStorageSync(tempRegistryKey(scope));
+    return Array.isArray(value) ? value.filter((entry) => entry && entry.fileId) : [];
+  } catch (error) {
+    console.warn("temp image registry unavailable", error);
+    return [];
+  }
+}
+
+function writeTempRegistry(entries, scope = currentUserScope()) {
+  try { wx.setStorageSync(tempRegistryKey(scope), entries); } catch (error) { console.warn("temp image registry write failed", error); }
+}
+
+function registerTempImage(fileId, scope) {
+  const id = String(fileId || "");
+  if (!id) return null;
+  const fileScope = scope || currentUserScope();
+  const entries = readTempRegistry(fileScope);
+  const existing = entries.find((entry) => entry.fileId === id);
+  if (existing) {
+    existing.uploadedAt = Date.now();
+    writeTempRegistry(entries, fileScope);
+    return existing;
+  }
+  const entry = { fileId: id, uploadedAt: Date.now(), scope: fileScope || "" };
+  entries.push(entry);
+  writeTempRegistry(entries, fileScope);
+  return entry;
+}
+
+function unregisterTempImage(fileId) {
+  const id = String(fileId || "");
+  if (!id) return false;
+  const fileScope = tempFileScope(id);
+  if (!fileScope) return false;
+  writeTempRegistry(readTempRegistry(fileScope).filter((entry) => entry.fileId !== id), fileScope);
+  return true;
+}
+
+async function deleteTempFile(fileId) {
+  const id = String(fileId || "");
+  if (!id) return true;
+  const scope = currentUserScope();
+  if (scope && !id.includes(`/wardrobe/${scope}/tmp/`)) {
+    console.warn("temp image delete skipped: not owned by current user", id);
+    return false;
+  }
+  if (!/^cloud:\/\//i.test(id)) return true;
+  if (!canUseCloud() || typeof wx.cloud !== "object" || typeof wx.cloud.deleteFile !== "function") {
+    console.warn("temp image delete skipped: cloud deleteFile unavailable", id);
+    return false;
+  }
+  try {
+    await wx.cloud.deleteFile({ fileList: [id] });
+    return true;
+  } catch (error) {
+    console.warn("temp image delete failed; will retry later", id, error);
+    return false;
+  }
+}
+
+async function clearTempImage(fileId) {
+  const deleted = await deleteTempFile(fileId);
+  if (deleted) unregisterTempImage(fileId);
+  return deleted;
+}
+
+async function sweepExpiredTempImages(now = Date.now()) {
+  const cutoff = now - TEMP_IMAGE_TTL_MS;
+  const scope = currentUserScope();
+  const entries = readTempRegistry(scope);
+  const kept = [];
+  let swept = 0;
+  for (const entry of entries) {
+    if (Number(entry.uploadedAt || 0) >= cutoff) { kept.push(entry); continue; }
+    swept += 1;
+    const deleted = await deleteTempFile(entry.fileId);
+    if (!deleted) kept.push({ ...entry, uploadedAt: Date.now() });
+  }
+  writeTempRegistry(kept, scope);
+  return swept;
 }
 
 async function createWardrobeItem(payload) {
@@ -1396,6 +1499,11 @@ module.exports = {
   updateWardrobeItem,
   deleteWardrobeItem,
   uploadImage,
+  persistLocalImage,
+  registerTempImage,
+  unregisterTempImage,
+  clearTempImage,
+  sweepExpiredTempImages,
   recognizeWardrobeItem,
   analyzeClothing,
   generateItemDescription,
