@@ -17,6 +17,9 @@ const BIT_DEPTHS_BY_COLOR_TYPE = {
   6: [8, 16]
 };
 const MAX_TOTAL_PIXELS = 50 * 1000 * 1000;
+// 前景判定阈值：alpha >= 128（即不透明度过半）的像素计入前景。
+// 取 128 可把抗锯齿半透明边缘计入主体，同时排除抠图结果中大面积低透明度噪声。
+const FOREGROUND_ALPHA_THRESHOLD = 128;
 const ADAM7_PASSES = [
   { xStart: 0, yStart: 0, xStep: 8, yStep: 8 },
   { xStart: 4, yStart: 0, xStep: 8, yStep: 8 },
@@ -171,16 +174,17 @@ function parseChunks(buffer) {
   return { headerData, trns, idat: Buffer.concat(idatParts) };
 }
 
-// 逐行扫描一段（非隔行整体 / Adam7 单个 pass），返回累计透明像素数；cursor 在各 pass 间连续。
+// 逐行扫描一段（非隔行整体 / Adam7 单个 pass），返回累计透明像素数与前景像素数；cursor 在各 pass 间连续。
 function countPassAlpha(inflated, header, trns, pass, startCursor) {
   const { bitDepth, colorType, channels } = header;
   const passWidth = pass ? Math.ceil((header.width - pass.xStart) / pass.xStep) : header.width;
   const passHeight = pass ? Math.ceil((header.height - pass.yStart) / pass.yStep) : header.height;
-  if (passWidth <= 0 || passHeight <= 0) return { cursor: startCursor, transparent: 0 };
+  if (passWidth <= 0 || passHeight <= 0) return { cursor: startCursor, transparent: 0, foreground: 0 };
   const bitsPerPixel = channels * bitDepth;
   const bytesPerCompletePixel = Math.max(1, Math.floor((bitsPerPixel + 7) / 8));
   const stride = Math.floor((passWidth * bitsPerPixel + 7) / 8);
   let transparent = 0;
+  let foreground = 0;
   let cursor = startCursor;
   let previousRow = new Uint8Array(stride);
   for (let y = 0; y < passHeight; y += 1) {
@@ -191,11 +195,13 @@ function countPassAlpha(inflated, header, trns, pass, startCursor) {
     cursor += stride;
     unfilterRow(filterType, row, previousRow, bytesPerCompletePixel);
     for (let x = 0; x < passWidth; x += 1) {
-      if (sampleAlpha(row, x, header, trns) < 255) transparent += 1;
+      const alpha = sampleAlpha(row, x, header, trns);
+      if (alpha < 255) transparent += 1;
+      if (alpha >= FOREGROUND_ALPHA_THRESHOLD) foreground += 1;
     }
     previousRow = row;
   }
-  return { cursor, transparent };
+  return { cursor, transparent, foreground };
 }
 
 function decodePngAlpha(buffer) {
@@ -206,11 +212,13 @@ function decodePngAlpha(buffer) {
     const hasAlpha = headerData.colorType === 4 || headerData.colorType === 6 || trns !== null;
     const passList = headerData.interlace === 1 ? ADAM7_PASSES : [null];
     let transparentPixelCount = 0;
+    let foregroundPixelCount = 0;
     let cursor = 0;
     passList.forEach((pass) => {
       const result = countPassAlpha(inflated, headerData, trns, pass, cursor);
       cursor = result.cursor;
       transparentPixelCount += result.transparent;
+      foregroundPixelCount += result.foreground;
     });
     if (cursor !== inflated.length) throw new Error("IDAT_SIZE_MISMATCH");
     return {
@@ -219,7 +227,8 @@ function decodePngAlpha(buffer) {
       bitDepth: headerData.bitDepth,
       colorType: headerData.colorType,
       hasAlpha,
-      transparentPixelCount
+      transparentPixelCount,
+      foregroundPixelCount
     };
   } catch (error) {
     return null;

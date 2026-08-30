@@ -20,6 +20,7 @@ button::after { border: 0; }
 .upload-icon { width: 88rpx; height: 88rpx; border-radius: 50%; background: #fff0f3; display: flex; align-items: center; justify-content: center; }
 .hanger-icon { font-size: 48rpx; line-height: 1; color: #ef5d80; }
 .upload-title { margin-top: 24rpx; font-size: 30rpx; font-weight: 600; color: #3f3538; }
+.upload-single-hint { margin-top: 14rpx; padding: 8rpx 24rpx; border-radius: 24rpx; background: #fff0f3; color: #d97890; font-size: 22rpx; }
 .upload-help { margin-top: 18rpx; color: #9a8f94; font-size: 22rpx; line-height: 1.7; text-align: center; }
 .upload-actions { display: flex; gap: 18rpx; margin-top: 44rpx; width: 100%; }
 .upload-panel.has-image .upload-actions { margin-top: 28rpx; }
@@ -40,28 +41,30 @@ button::after { border: 0; }
 .tips text::first-letter { color: #ef5d80; }
 
 /* ---- 表单卡 ---- */
-.form-card, .recognition-card { margin-top: 22rpx; padding: 28rpx; border: 2rpx solid #f1ded8; border-radius: 28rpx; background: #ffffff; box-shadow: 0 12rpx 30rpx rgba(190, 110, 125, .06); }
+.form-card { margin-top: 22rpx; padding: 28rpx; border: 2rpx solid #f1ded8; border-radius: 28rpx; background: #ffffff; box-shadow: 0 12rpx 30rpx rgba(190, 110, 125, .06); }
 .section-title { display: block; color: #453e41; font-size: 28rpx; font-weight: 650; }
 .safe-note { display: block; margin-top: 14rpx; padding: 16rpx 20rpx; background: #fff5f6; border-radius: 16rpx; color: #a17f87; font-size: 22rpx; line-height: 1.65; }
 
-/* ---- 3.1 识别卡 / 上传状态 ---- */
-.recognition-card { display: flex; gap: 24rpx; align-items: center; }
-.recognition-image { flex: 0 0 240rpx; width: 240rpx; height: 220rpx; border-radius: 20rpx; background: #fff7f7; }
-.recognition-status { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+/* ---- 3.1 抠图 staging 卡（上传 / 抠图 / 预览 / 失败 / 已确认） ---- */
+.staging-card { margin-top: 22rpx; padding: 28rpx; border: 2rpx solid #f1ded8; border-radius: 28rpx; background: #ffffff; box-shadow: 0 12rpx 30rpx rgba(190, 110, 125, .06); display: flex; flex-direction: column; }
+.staging-stage { display: flex; align-items: center; justify-content: center; min-height: 320rpx; }
+.staging-original { width: 100%; height: 320rpx; border-radius: 20rpx; background: #fff7f7; }
+.staging-loading { width: 100%; display: flex; flex-direction: column; align-items: center; }
+.staging-loading-image { width: 100%; height: 280rpx; border-radius: 20rpx; background: #fff7f7; opacity: .75; }
+.staging-loading-text { margin-top: 18rpx; color: #b98d99; font-size: 24rpx; }
+.staging-empty { width: 100%; height: 320rpx; border-radius: 20rpx; background: #fdf6f6; }
+.staging-status { display: flex; flex-direction: column; align-items: flex-start; margin-top: 22rpx; }
 .status-title { color: #645b5f; font-size: 26rpx; font-weight: 600; }
 .status-title.success { color: #69a559; }
 .status-title.warning { color: #d58a56; }
 .status-copy { margin-top: 14rpx; color: #94898e; font-size: 22rpx; line-height: 1.6; }
 .mini-button { min-width: 150rpx; height: 58rpx; margin-top: 18rpx; padding: 0 22rpx; border: 2rpx solid #f2c5cf; border-radius: 29rpx; color: #e75e7d; background: #fff0f3; font-size: 22rpx; display: flex; align-items: center; justify-content: center; }
-
-/* ---- Spike：抠图预览 ---- */
-.cutout-card { display: flex; flex-direction: column; }
-.cutout-card .section-copy { margin-top: 12rpx; }
-.cutout-button { margin-top: 22rpx; height: 80rpx; border-radius: 40rpx; font-size: 26rpx; }
-.cutout-canvas { margin-top: 22rpx; height: 320rpx; border-radius: 20rpx; display: flex; align-items: center; justify-content: center; background-color: #fffdfa; background-image: linear-gradient(45deg, #f6ecf0 25%, transparent 25%, transparent 75%, #f6ecf0 75%), linear-gradient(45deg, #f6ecf0 25%, transparent 25%, transparent 75%, #f6ecf0 75%); background-size: 36rpx 36rpx; background-position: 0 0, 18rpx 18rpx; }
+.staging-actions { display: flex; gap: 16rpx; margin-top: 20rpx; width: 100%; }
+.staging-actions .mini-button { margin-top: 0; }
+.staging-confirm { flex: 0 0 auto; padding: 0 34rpx; height: 58rpx; border-radius: 29rpx; font-size: 23rpx; }
+.status-code { margin-top: 10rpx; color: #c2b3b8; font-size: 20rpx; }
+.cutout-canvas { width: 100%; height: 320rpx; border-radius: 20rpx; display: flex; align-items: center; justify-content: center; background-color: #fffdfa; background-image: linear-gradient(45deg, #f6ecf0 25%, transparent 25%, transparent 75%, #f6ecf0 75%), linear-gradient(45deg, #f6ecf0 25%, transparent 25%, transparent 75%, #f6ecf0 75%); background-size: 36rpx 36rpx; background-position: 0 0, 18rpx 18rpx; }
 .cutout-canvas image { width: 100%; height: 100%; }
-.cutout-meta { margin-top: 16rpx; color: #69a559; font-size: 22rpx; }
-.cutout-error { margin-top: 16rpx; color: #d58a56; font-size: 22rpx; line-height: 1.6; word-break: break-all; }
 
 /* ---- 3.2/3.3 字段与标签组 ---- */
 .field { margin-top: 28rpx; min-width: 0; }
@@ -113,3 +116,5 @@ button.pill { width: auto; flex: 0 1 auto; margin: 0; }
 .bottom-actions { display: flex; gap: 18rpx; margin-top: 28rpx; }
 .action-button { flex: 1; height: 88rpx; border-radius: 44rpx; font-size: 27rpx; font-weight: 500; }
 button[disabled] { opacity: .6; }
+.save-placeholder { box-shadow: none; }
+.save-note { display: block; margin-top: 16rpx; color: #a89a9f; font-size: 22rpx; line-height: 1.6; text-align: center; }

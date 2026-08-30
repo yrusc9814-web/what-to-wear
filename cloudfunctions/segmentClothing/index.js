@@ -36,6 +36,7 @@ const ERROR_MESSAGES = {
   RESULT_TOO_LARGE: "抠图结果超过大小限制。",
   RESULT_NOT_PNG: "抠图结果不是有效的透明 PNG。",
   RESULT_NO_ALPHA: "抠图结果没有透明像素，可能未识别出服饰主体。",
+  RESULT_NO_FOREGROUND: "抠图结果没有可见的服饰主体，请换一张更清晰的单品图片再试。",
   RESULT_UPLOAD_FAILED: "抠图结果保存失败，请稍后重试。"
 };
 
@@ -146,7 +147,7 @@ function mapSegmentError(error) {
   return { errorCode: "SEGMENT_API_FAILED", aliCode: extractAliCode(error) };
 }
 
-// Spike 诊断：把底层错误摘要透传到失败 envelope（不含凭证/签名），便于验收定位。
+// 诊断摘要：把底层错误摘要透传到失败 envelope（不含凭证/签名），便于验收定位。
 // 注意：阿里云错误 message 可能内嵌 AccessKeyId（如 NotPurchase 类错误），必须脱敏。
 function describeSdkError(error, credentials) {
   if (!error || typeof error !== "object") return "";
@@ -339,10 +340,13 @@ exports.main = async (event = {}) => {
   const png = decodePngAlpha(downloaded.buffer);
   if (!png) return failure("RESULT_NOT_PNG");
   if (!png.hasAlpha || png.transparentPixelCount < 1) return failure("RESULT_NO_ALPHA");
+  // Round 2A-2：全透明（没有任何 alpha>=128 的像素）说明未抠出可见主体，拒绝以免用户拿到空白图。
+  if (png.foregroundPixelCount < 1) return failure("RESULT_NO_FOREGROUND");
   console.log("segmentClothing alpha verified", {
     width: png.width,
     height: png.height,
     transparentPixelCount: png.transparentPixelCount,
+    foregroundPixelCount: png.foregroundPixelCount,
     bytes: downloaded.buffer.length
   });
 
@@ -367,6 +371,7 @@ exports.main = async (event = {}) => {
       height: png.height,
       hasAlpha: true,
       transparentPixelCount: png.transparentPixelCount,
+      foregroundPixelCount: png.foregroundPixelCount,
       elapsedMs: Date.now() - startedAt
     }
   };

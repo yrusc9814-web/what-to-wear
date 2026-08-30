@@ -1,0 +1,9 @@
+{
+  "name": "deleteWardrobeTemp",
+  "version": "1.0.0",
+  "main": "index.js",
+  "description": "Delete caller-owned temp files under wardrobe/{openid}/tmp/ (server-side cleanup for cutout staging)",
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

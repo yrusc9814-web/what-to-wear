@@ -167,7 +167,7 @@ async function run() {
     global.wx = { showLoading() {}, hideLoading() {}, showToast() {}, showModal() {}, navigateBack() {}, pageScrollTo() {} };
     const page = {
       ...definition,
-      data: { ...definition.data, localImagePath: "wxfile://store/a.jpg", tempFileId: "" },
+      data: { ...definition.data, localImagePath: "wxfile://store/a.jpg", sourceTempFileId: "" },
       setData(patch) { Object.assign(this.data, patch); }
     };
     const promiseA = page.uploadTempImage();
@@ -179,12 +179,12 @@ async function run() {
     // A 先完成（过期结果）
     pending[0].resolve({ uploadState: "success", imageUrl: pending[0].fileId, fileId: pending[0].fileId });
     await promiseA;
-    assert.strictEqual(page.data.tempFileId, "", "A 的过期结果不得写回 UI");
+    assert.strictEqual(page.data.sourceTempFileId, "", "A 的过期结果不得写回 UI");
     assert(calls.clearTemp.includes(pending[0].fileId), "过期 A 的临时云图必须回收");
     // B 后完成
     pending[1].resolve({ uploadState: "success", imageUrl: pending[1].fileId, fileId: pending[1].fileId });
     await promiseB;
-    assert.strictEqual(page.data.tempFileId, pending[1].fileId, "最终 temp 必须是 B");
+    assert.strictEqual(page.data.sourceTempFileId, pending[1].fileId, "最终 temp 必须是 B");
     assert.strictEqual(page.data.imageUrl, pending[1].fileId, "最终 UI 图片必须是 B");
     assert.strictEqual(page.data.uploadState, "success");
   }
@@ -228,7 +228,7 @@ async function run() {
       data: {
         ...definition.data,
         localImagePath: "wxfile://store/offline.jpg",
-        tempFileId: "",
+        sourceTempFileId: "",
         uploadState: "idle",
         form: { ...definition.data.form, name: "离线单品", category: "top", seasons: ["summer"], styles: ["casual"] }
       },
@@ -241,7 +241,7 @@ async function run() {
     assert.strictEqual(page.data.saving, false);
   }
 
-  // ---- 8. 禁止 tmp 转正：在线上传失败 → 抛错不保存、temp 保留供重试 ----
+  // ---- 8. 禁止 tmp 转正：staging 状态下保存被拦，不得保存、temp 保留 ----
   {
     const { calls, serviceMock } = createDeferredService();
     serviceMock.uploadImage = (path, scope, guard, purpose) => {
@@ -261,7 +261,7 @@ async function run() {
       data: {
         ...definition.data,
         localImagePath: "wxfile://store/fb.jpg",
-        tempFileId: "cloud://env/wardrobe/user_a/tmp/fb.jpg",
+        sourceTempFileId: "cloud://env/wardrobe/user_a/tmp/fb.jpg",
         imageUrl: "cloud://env/wardrobe/user_a/tmp/fb.jpg",
         fileId: "cloud://env/wardrobe/user_a/tmp/fb.jpg",
         uploadState: "success",
@@ -270,14 +270,14 @@ async function run() {
       setData(patch) { Object.assign(this.data, patch); }
     };
     await page.saveItem();
-    assert.strictEqual(calls.created.length, 0, "在线上传失败时不得保存单品");
+    assert.strictEqual(calls.created.length, 0, "staging 状态下不得保存单品（Round 2A-2 保存未开放）");
     assert(!calls.unregistered.includes("cloud://env/wardrobe/user_a/tmp/fb.jpg"), "不得停止跟踪待重试的 temp");
     assert(!calls.clearTemp.includes("cloud://env/wardrobe/user_a/tmp/fb.jpg"), "不得删除待重试的 temp");
-    assert.strictEqual(page.data.tempFileId, "cloud://env/wardrobe/user_a/tmp/fb.jpg", "temp 必须保留供重试");
+    assert.strictEqual(page.data.sourceTempFileId, "cloud://env/wardrobe/user_a/tmp/fb.jpg", "staging 必须保留供重试");
     assert.strictEqual(page.data.saving, false);
   }
 
-  // ---- 9. 保存成功：正式上传后删除 temp（回归覆盖）----
+  // ---- 9. staging 状态下保存被明确拦住：不得假装成功，也不得触碰 temp ----
   {
     const { calls, serviceMock } = createDeferredService();
     serviceMock.uploadImage = (path, scope, guard, purpose) => {
@@ -285,43 +285,54 @@ async function run() {
       return Promise.resolve({ uploadState: "success", imageUrl: "cloud://env/wardrobe/user_a/formal.jpg", fileId: "cloud://env/wardrobe/user_a/formal.jpg", storage: "cloud" });
     };
     const definition = loadPage("../miniprogram/pages/item-upload/item-upload", serviceMock);
-    global.wx = { showLoading() {}, hideLoading() {}, showToast() {}, showModal() {}, navigateBack() {}, pageScrollTo() {} };
+    const modalCalls = [];
+    global.wx = { showLoading() {}, hideLoading() {}, showToast() {}, showModal(options) { modalCalls.push(options && options.title); }, navigateBack() {}, pageScrollTo() {} };
     const page = {
       ...definition,
       data: {
         ...definition.data,
         localImagePath: "wxfile://store/b.jpg",
-        tempFileId: "cloud://env/wardrobe/user_a/tmp/old.jpg",
+        sourceTempFileId: "cloud://env/wardrobe/user_a/tmp/old.jpg",
+        cutoutTempFileId: "cloud://env/wardrobe/user_a/tmp/cutout_old.png",
         imageUrl: "cloud://env/wardrobe/user_a/tmp/old.jpg",
         fileId: "cloud://env/wardrobe/user_a/tmp/old.jpg",
         uploadState: "success",
+        stagingConfirmed: true,
         form: { ...definition.data.form, name: "测试上衣", category: "top", seasons: ["summer"], styles: ["casual"] }
       },
       setData(patch) { Object.assign(this.data, patch); }
     };
     await page.saveItem();
-    assert(calls.purposes.includes("clothing"), "保存时必须按正式用途上传");
-    assert.strictEqual(calls.created.length, 1);
-    assert.strictEqual(calls.created[0].imageFileId, "cloud://env/wardrobe/user_a/formal.jpg", "正式图不得引用 tmp 路径");
-    assert(calls.clearTemp.includes("cloud://env/wardrobe/user_a/tmp/old.jpg"), "保存成功后必须删除 temp");
+    assert.strictEqual(calls.created.length, 0, "Round 2A-2：staging 状态下绝不调用 createWardrobeItem");
+    assert.strictEqual(modalCalls.includes("保存暂未开放"), true, "必须给用户明确的“保存未开放”提示，不得静默失败");
+    assert(!calls.purposes.includes("clothing"), "staging 状态下不得发起正式用途上传");
+    assert(!calls.clearTemp.includes("cloud://env/wardrobe/user_a/tmp/old.jpg"), "拦住保存时不得清理 temp");
     assert.strictEqual(page.data.saving, false);
   }
 
-  // ---- 10. 重选图：已有 temp 时再次上传必须先删除旧 temp ----
+  // ---- 10. 重选图：已有 staging 时再次上传必须先删除旧原图与旧抠图 ----
   {
     const { pending, calls, serviceMock } = createDeferredService();
     const definition = loadPage("../miniprogram/pages/item-upload/item-upload", serviceMock);
     global.wx = { showLoading() {}, hideLoading() {}, showToast() {}, showModal() {}, navigateBack() {}, pageScrollTo() {} };
     const page = {
       ...definition,
-      data: { ...definition.data, localImagePath: "wxfile://store/a.jpg", tempFileId: "cloud://env/wardrobe/user_a/tmp/old.jpg", uploadState: "success" },
+      data: {
+        ...definition.data,
+        localImagePath: "wxfile://store/a.jpg",
+        sourceTempFileId: "cloud://env/wardrobe/user_a/tmp/old.jpg",
+        cutoutTempFileId: "cloud://env/wardrobe/user_a/tmp/cutout_old.png",
+        uploadState: "success"
+      },
       setData(patch) { Object.assign(this.data, patch); }
     };
     const p = page.uploadTempImage();
     pending[0].resolve({ uploadState: "success", imageUrl: "cloud://env/wardrobe/user_a/tmp/new.jpg", fileId: "cloud://env/wardrobe/user_a/tmp/new.jpg", storage: "cloud" });
     await p;
-    assert(calls.clearTemp.includes("cloud://env/wardrobe/user_a/tmp/old.jpg"), "重选图时旧 temp 必须被删除");
-    assert.strictEqual(page.data.tempFileId, "cloud://env/wardrobe/user_a/tmp/new.jpg");
+    assert(calls.clearTemp.includes("cloud://env/wardrobe/user_a/tmp/old.jpg"), "重选图时旧原图 temp 必须被删除");
+    assert(calls.clearTemp.includes("cloud://env/wardrobe/user_a/tmp/cutout_old.png"), "重选图时旧抠图 temp 必须被删除");
+    assert.strictEqual(page.data.sourceTempFileId, "cloud://env/wardrobe/user_a/tmp/new.jpg");
+    assert.strictEqual(page.data.cutoutTempFileId, "", "新 staging 建立时不得残留旧抠图引用");
   }
 
   console.log("temp image lifecycle page tests passed");

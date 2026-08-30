@@ -695,13 +695,20 @@ async function run() {
     assert.strictEqual((await readStreamAll(stream)).toString(), "abc");
   }
 
-  // ---- 15. item-upload 页面「抠图预览(Spike)」最小 UI 行为 ----
+  // ---- 15. item-upload 页正式抠图流程：自动抠图 / 确认使用 / 失败重试 / 过代际回收 ----
   {
+    const SOURCE_ID = `cloud://env.bucket/wardrobe/user_a/tmp/1.jpg`;
     const CUT_FILE_ID = `cloud://env.bucket/wardrobe/user_a/tmp/cutout_1.png`;
-    const calls = { registered: [] };
+    const calls = { registered: [], cleared: [], saveCalls: 0, modalTitles: [] };
     const appServiceMock = {
       registerTempImage(fileId) { calls.registered.push(fileId); return { fileId }; },
-      sweepExpiredTempImages() { return Promise.resolve(0); }
+      clearTempImage(fileId) { if (fileId) calls.cleared.push(fileId); return Promise.resolve(true); },
+      unregisterTempImage() {},
+      sweepExpiredTempImages() { return Promise.resolve(0); },
+      createWardrobeItem() {
+        calls.saveCalls += 1;
+        return Promise.resolve({ syncStatus: "synced", id: "item_1" });
+      }
     };
     let cloudImpl = null;
     const cloudMock = {
@@ -719,7 +726,10 @@ async function run() {
         });
       }
     };
-    global.wx = { showLoading() {}, hideLoading() {}, showToast() {}, showModal() {}, navigateBack() {}, pageScrollTo() {} };
+    global.wx = {
+      showLoading() {}, hideLoading() {}, showToast() {}, showModal(options) { calls.modalTitles.push(options && options.title); },
+      navigateBack() {}, pageScrollTo() {}
+    };
     global.Page = (definition) => { calls.pageDefinition = definition; };
     const pagePath = path.resolve(__dirname, "../miniprogram/pages/item-upload/item-upload.js");
     const originalLoad = Module._load;
@@ -736,44 +746,71 @@ async function run() {
       delete global.Page;
     }
     const definition = calls.pageDefinition;
-    assert(definition.previewCutout, "页面必须提供 previewCutout 处理函数");
+    assert(definition.startCutout && definition.confirmCutout && definition.retryCutout, "页面必须提供自动抠图 / 确认使用 / 重试抠图处理函数");
+    assert(!definition.previewCutout, "手动 Spike 抠图入口必须移除");
 
     const makePage = () => ({
       ...definition,
-      data: { ...definition.data, tempFileId: `cloud://env.bucket/wardrobe/user_a/tmp/1.jpg`, uploadState: "success" },
+      data: JSON.parse(JSON.stringify(definition.data)),
       setData(patch) { Object.assign(this.data, patch); }
     });
 
-    // 成功：结果登记进 temp registry，展示透明图与 alpha 信息
+    // 成功：抠图结果登记进 temp registry 并写入 cutoutTempFileId（与原图分开维护）
     cloudImpl = () => Promise.resolve({
-      result: { ok: true, data: { resultFileId: CUT_FILE_ID, width: 6, height: 4, hasAlpha: true, transparentPixelCount: 6, elapsedMs: 12 } }
+      result: { ok: true, data: { resultFileId: CUT_FILE_ID, width: 6, height: 4, hasAlpha: true, transparentPixelCount: 6, foregroundPixelCount: 18, elapsedMs: 12 } }
     });
     const page = makePage();
-    await page.previewCutout();
+    page.setData({ localImagePath: "wxfile://store/a.jpg", sourceTempFileId: SOURCE_ID, uploadState: "success" });
+    await page.startCutout();
     assert.strictEqual(page.data.cutoutState, "success");
-    assert.strictEqual(page.data.cutoutImageUrl, CUT_FILE_ID);
-    assert(page.data.cutoutInfo.includes("6×4") && page.data.cutoutInfo.includes("6"), "必须展示尺寸与透明像素数");
+    assert.strictEqual(page.data.cutoutTempFileId, CUT_FILE_ID);
+    assert.strictEqual(page.data.cutoutError, "");
+    assert(page.data.sourceTempFileId === SOURCE_ID && page.data.cutoutTempFileId !== page.data.sourceTempFileId, "原图与抠图结果必须分开维护");
     assert.deepStrictEqual(calls.registered, [CUT_FILE_ID], "抠图结果必须登记进 temp registry 复用 24h TTL");
     assert.strictEqual(calls.functionName, "segmentClothing");
-    assert.strictEqual(calls.functionData.tempFileId, `cloud://env.bucket/wardrobe/user_a/tmp/1.jpg`);
+    assert.strictEqual(calls.functionData.tempFileId, SOURCE_ID);
 
-    // 失败：明确显示 errorCode/errorMessage，不得显示原图或伪成功
-    cloudImpl = () => Promise.resolve({ result: { ok: false, errorCode: "RESULT_NO_ALPHA", errorMessage: "抠图结果没有透明像素，可能未识别出服饰主体。" } });
+    // 确认使用 → 仅进入属性填写状态；保存路径被拦（staging），绝不调用 createWardrobeItem
+    page.confirmCutout();
+    assert.strictEqual(page.data.stagingConfirmed, true, "确认使用后进入属性填写状态");
+    page.setData({ step: 3 });
+    await page.saveItem();
+    assert.strictEqual(calls.saveCalls, 0, "确认抠图后不得触发任何保存");
+    assert(calls.modalTitles.includes("保存暂未开放"), "保存被拦时必须给出明确提示，不得静默失败");
+    assert.strictEqual(page.data.cutoutTempFileId, CUT_FILE_ID, "确认后 staging 引用保持不变");
+
+    // 失败：友好错误 + 小字错误码，不得展示任何抠图结果或原图 fallback
+    cloudImpl = () => Promise.resolve({ result: { ok: false, errorCode: "RESULT_NO_FOREGROUND", errorMessage: "抠图结果没有可见的服饰主体，请换一张更清晰的单品图片再试。" } });
     const failedPage = makePage();
-    await failedPage.previewCutout();
+    failedPage.setData({ localImagePath: "wxfile://store/a.jpg", sourceTempFileId: SOURCE_ID, uploadState: "success" });
+    await failedPage.startCutout();
     assert.strictEqual(failedPage.data.cutoutState, "error");
-    assert(failedPage.data.cutoutError.includes("RESULT_NO_ALPHA"), "失败必须展示 errorCode");
-    assert(failedPage.data.cutoutError.includes("抠图结果没有透明像素"), "失败必须展示 errorMessage");
-    assert.strictEqual(failedPage.data.cutoutImageUrl, "", "失败不得展示任何图片");
-    assert.strictEqual(failedPage.data.cutoutState !== "success", true);
+    assert(failedPage.data.cutoutError.includes("没有可见的服饰主体"), "失败必须展示友好错误信息");
+    assert.strictEqual(failedPage.data.cutoutErrorCode, "RESULT_NO_FOREGROUND", "失败保留错误码便于反馈");
+    assert.strictEqual(failedPage.data.cutoutTempFileId, "", "失败不得展示任何抠图结果");
+    assert(calls.registered.indexOf(CUT_FILE_ID) === calls.registered.length - 1, "失败路径不得登记 temp");
 
     // 云函数 reject（如网络失败）也要落到明确错误
     cloudImpl = () => Promise.reject(Object.assign(new Error("当前环境不支持云开发"), { code: "CLOUD_UNAVAILABLE" }));
     const rejectPage = makePage();
-    await rejectPage.previewCutout();
+    rejectPage.setData({ localImagePath: "wxfile://store/a.jpg", sourceTempFileId: SOURCE_ID, uploadState: "success" });
+    await rejectPage.startCutout();
     assert.strictEqual(rejectPage.data.cutoutState, "error");
-    assert(rejectPage.data.cutoutError.includes("CLOUD_UNAVAILABLE"));
-    assert.strictEqual(rejectPage.data.cutoutLoading, false);
+    assert.strictEqual(rejectPage.data.cutoutErrorCode, "CLOUD_UNAVAILABLE");
+
+    // 过代际抠图结果：不得写入 UI，且必须立即回收
+    let releaseStale = null;
+    cloudImpl = () => new Promise((resolve) => { releaseStale = resolve; });
+    const stalePage = makePage();
+    stalePage.setData({ localImagePath: "wxfile://store/a.jpg", sourceTempFileId: SOURCE_ID, uploadState: "success" });
+    const stalePromise = stalePage.startCutout();
+    stalePage._imageGeneration = (stalePage._imageGeneration || 0) + 1;
+    releaseStale({
+      result: { ok: true, data: { resultFileId: CUT_FILE_ID, width: 6, height: 4, hasAlpha: true, transparentPixelCount: 6, foregroundPixelCount: 18, elapsedMs: 12 } }
+    });
+    await stalePromise;
+    assert.notStrictEqual(stalePage.data.cutoutState, "success", "过代际抠图结果不得写回 UI");
+    assert(calls.cleared.includes(CUT_FILE_ID), "过代际抠图结果必须立即回收");
   }
 
   console.log("segment clothing cloud function tests passed");

@@ -15,6 +15,7 @@
       <block wx:else>
         <view class="upload-icon"><text class="hanger-icon">♡</text></view>
         <text class="upload-title">上传或拍摄单品图片</text>
+        <text class="upload-single-hint">每次请上传一件单品</text>
         <text class="upload-help">支持 JPG / PNG / WebP 格式，建议主体清晰、背景简洁</text>
       </block>
       <view class="upload-actions">
@@ -25,121 +26,149 @@
 
     <view class="tip-block">
       <text class="tip-title">上传提示</text>
-      <text class="section-copy">图片将保存为单品主图，上传后可手动填写名称、分类、季节、风格等属性。</text>
+      <text class="section-copy">图片将保存为单品主图，上传后会自动生成透明背景预览，确认后可手动填写名称、分类、季节、风格等属性。</text>
       <view class="tips">
+        <text>✓ 每次请上传一件单品</text>
         <text>✓ 保持图片清晰、光线充足</text>
         <text>✓ 单品主体完整，尽量避免裁切</text>
         <text>✓ 纯色或干净背景效果更好</text>
-        <text>✓ 每件单品保存 1 张主图</text>
       </view>
     </view>
   </block>
 
   <block wx:else>
-    <view class="recognition-card">
-      <image class="recognition-image" src="{{imageUrl || localImagePath}}" mode="aspectFit" />
-      <view class="recognition-status">
-        <text wx:if="{{uploadState === 'uploading'}}" class="status-title">正在上传图片…</text>
-        <text wx:elif="{{uploadState === 'success'}}" class="status-title success">✓ 图片已上传</text>
-        <text wx:elif="{{uploadState === 'error'}}" class="status-title warning">图片上传失败</text>
-        <text wx:else class="status-title">等待上传</text>
-        <text class="status-copy">{{uploadState === 'success' ? '请填写单品信息，确认后保存' : '可直接手动填写，不影响保存'}}</text>
-        <button wx:if="{{uploadState === 'error'}}" class="mini-button" bindtap="retryUpload">重试上传</button>
+    <view class="staging-card">
+      <view class="staging-stage">
+        <block wx:if="{{uploadState === 'success' && cutoutState === 'success' && cutoutTempFileId}}">
+          <view class="cutout-canvas"><image src="{{cutoutTempFileId}}" mode="aspectFit" /></view>
+        </block>
+        <view wx:elif="{{uploadState === 'uploading' || cutoutState === 'loading'}}" class="staging-loading">
+          <image class="staging-loading-image" src="{{imageUrl || localImagePath}}" mode="aspectFit" />
+          <text class="staging-loading-text">{{uploadState === 'uploading' ? '正在上传图片…' : '正在抠图…'}}</text>
+        </view>
+        <view wx:elif="{{cutoutState === 'error'}}" class="staging-empty"></view>
+        <image wx:else class="staging-original" src="{{imageUrl || localImagePath}}" mode="aspectFit" />
+      </view>
+      <view class="staging-status">
+        <block wx:if="{{uploadState === 'error'}}">
+          <text class="status-title warning">图片上传失败</text>
+          <text class="status-copy">请检查网络后重试，或重新选择图片。</text>
+          <view class="staging-actions">
+            <button class="mini-button" bindtap="retryUpload">重试上传</button>
+            <button class="mini-button" bindtap="rechooseImage">重新选择</button>
+          </view>
+        </block>
+        <block wx:elif="{{cutoutState === 'error'}}">
+          <text class="status-title warning">抠图失败</text>
+          <text class="status-copy">{{cutoutError}}</text>
+          <text class="status-code">错误码 {{cutoutErrorCode}}</text>
+          <view class="staging-actions">
+            <button class="mini-button" bindtap="retryCutout">重试抠图</button>
+            <button class="mini-button" bindtap="rechooseImage">重新选择</button>
+          </view>
+        </block>
+        <block wx:elif="{{cutoutState === 'success' && !stagingConfirmed}}">
+          <text class="status-title success">✓ 抠图完成</text>
+          <text class="status-copy">已生成透明背景预览，确认使用后填写单品属性。</text>
+          <view class="staging-actions">
+            <button class="primary small-button staging-confirm" bindtap="confirmCutout">确认使用</button>
+            <button class="mini-button" bindtap="rechooseImage">重新选择</button>
+          </view>
+        </block>
+        <block wx:elif="{{stagingConfirmed}}">
+          <text class="status-title success">✓ 已确认抠图结果</text>
+          <text class="status-copy">预览图仅用于确认，24 小时内自动清理。</text>
+        </block>
+        <block wx:else>
+          <text class="status-title">正在处理图片…</text>
+        </block>
       </view>
     </view>
 
-    <view wx:if="{{uploadState === 'success' && tempFileId}}" class="form-card cutout-card">
-      <text class="section-title">抠图预览（Spike）</text>
-      <text class="section-copy">验证真实服饰抠图链路：调用阿里云 SegmentCloth 生成带透明通道的 PNG，结果按临时图 24 小时自动清理。</text>
-      <button class="soft small-button cutout-button" loading="{{cutoutLoading}}" disabled="{{cutoutLoading}}" bindtap="previewCutout">{{cutoutLoading ? '正在抠图…' : '生成抠图预览'}}</button>
-      <block wx:if="{{cutoutState === 'success'}}">
-        <view class="cutout-canvas"><image src="{{cutoutImageUrl}}" mode="aspectFit" /></view>
-        <text class="cutout-meta">✓ {{cutoutInfo}}</text>
-      </block>
-      <text wx:elif="{{cutoutState === 'error'}}" class="cutout-error">抠图失败：{{cutoutError}}</text>
-    </view>
-
-    <view class="form-card">
-      <text class="section-title">基础信息（必填）</text>
-      <view class="field">
-        <text class="field-label">单品名称 <text class="required">*</text></text>
-        <input class="input" maxlength="20" placeholder="请填写单品名称" value="{{form.name}}" data-field="name" bindinput="onInput" />
-      </view>
-      <view class="field">
-        <text class="field-label">分类 <text class="required">*</text></text>
-        <view class="choice-grid five">
-          <button wx:for="{{categoryOptions}}" wx:key="value" class="choice {{form.category === item.value ? 'selected' : ''}}" data-field="category" data-value="{{item.value}}" bindtap="onSingleSelect"><text class="choice-icon">{{item.icon}}</text><text>{{item.label}}</text></button>
+    <block wx:if="{{stagingConfirmed}}">
+      <view class="form-card">
+        <text class="section-title">基础信息（必填）</text>
+        <view class="field">
+          <text class="field-label">单品名称 <text class="required">*</text></text>
+          <input class="input" maxlength="20" placeholder="请填写单品名称" value="{{form.name}}" data-field="name" bindinput="onInput" />
         </view>
-      </view>
-      <view class="field">
-        <text class="field-label">适用季节 <text class="required">*</text><text class="field-hint">可多选</text></text>
-        <view class="choice-row">
-          <button wx:for="{{seasonOptions}}" wx:key="value" class="pill {{selectedSeasons[item.value] ? 'selected' : ''}}" data-field="seasons" data-value="{{item.value}}" bindtap="onMultiSelect">{{item.label}}</button>
-        </view>
-      </view>
-      <view class="field">
-        <text class="field-label">风格 <text class="required">*</text><text class="field-hint">可多选</text></text>
-        <view class="choice-row">
-          <button wx:for="{{styleOptions}}" wx:key="value" class="pill {{selectedStyles[item.value] ? 'selected' : ''}}" data-field="styles" data-value="{{item.value}}" bindtap="onMultiSelect">{{item.label}}</button>
-        </view>
-      </view>
-    </view>
-
-    <view class="form-card">
-      <text class="section-title">单品属性（选填）</text>
-      <view class="field">
-        <text class="field-label">主颜色 <text class="field-hint">单选</text></text>
-        <view class="color-row">
-          <button wx:for="{{colorOptions}}" wx:key="value" class="color-choice {{form.primaryColor === item.value ? 'color-selected' : ''}}" data-field="primaryColor" data-value="{{item.value}}" bindtap="onSingleSelect">
-            <view class="swatch {{item.value === 'multicolor' ? 'rainbow' : ''}}" style="{{item.value === 'multicolor' ? '' : 'background:' + item.swatch}}"></view>
-            <text>{{item.label}}</text>
-          </button>
-        </view>
-      </view>
-      <view class="two-column">
-        <view class="field half">
-          <text class="field-label">厚度</text>
-          <view class="choice-row compact">
-            <button wx:for="{{thicknessOptions}}" wx:key="value" class="pill compact-pill {{form.thickness === item.value ? 'selected' : ''}}" data-field="thickness" data-value="{{item.value}}" bindtap="onSingleSelect">{{item.label}}</button>
+        <view class="field">
+          <text class="field-label">分类 <text class="required">*</text></text>
+          <view class="choice-grid five">
+            <button wx:for="{{categoryOptions}}" wx:key="value" class="choice {{form.category === item.value ? 'selected' : ''}}" data-field="category" data-value="{{item.value}}" bindtap="onSingleSelect"><text class="choice-icon">{{item.icon}}</text><text>{{item.label}}</text></button>
           </view>
         </view>
-        <view class="field half">
-          <text class="field-label">尺码</text>
-          <input class="input" maxlength="20" placeholder="例如 M / 165/88A" value="{{form.size}}" data-field="size" bindinput="onInput" />
+        <view class="field">
+          <text class="field-label">适用季节 <text class="required">*</text><text class="field-hint">可多选</text></text>
+          <view class="choice-row">
+            <button wx:for="{{seasonOptions}}" wx:key="value" class="pill {{selectedSeasons[item.value] ? 'selected' : ''}}" data-field="seasons" data-value="{{item.value}}" bindtap="onMultiSelect">{{item.label}}</button>
+          </view>
+        </view>
+        <view class="field">
+          <text class="field-label">风格 <text class="required">*</text><text class="field-hint">可多选</text></text>
+          <view class="choice-row">
+            <button wx:for="{{styleOptions}}" wx:key="value" class="pill {{selectedStyles[item.value] ? 'selected' : ''}}" data-field="styles" data-value="{{item.value}}" bindtap="onMultiSelect">{{item.label}}</button>
+          </view>
         </view>
       </view>
-    </view>
 
-    <view class="form-card">
-      <text class="section-title">购买信息（选填）</text>
-      <text class="safe-note">购买信息不会被图片内容生成，请手动填写</text>
-      <view class="two-column">
-        <view class="field half"><text class="field-label">购买价格（元）</text><input class="input" type="digit" maxlength="10" placeholder="0.00" value="{{form.purchasePrice}}" data-field="purchasePrice" bindinput="onInput" /></view>
-        <view class="field half"><text class="field-label">购买日期</text><picker mode="date" end="{{today}}" value="{{form.purchaseDate}}" bindchange="onDateChange"><view class="input picker">{{form.purchaseDate || '请选择'}}</view></picker></view>
+      <view class="form-card">
+        <text class="section-title">单品属性（选填）</text>
+        <view class="field">
+          <text class="field-label">主颜色 <text class="field-hint">单选</text></text>
+          <view class="color-row">
+            <button wx:for="{{colorOptions}}" wx:key="value" class="color-choice {{form.primaryColor === item.value ? 'color-selected' : ''}}" data-field="primaryColor" data-value="{{item.value}}" bindtap="onSingleSelect">
+              <view class="swatch {{item.value === 'multicolor' ? 'rainbow' : ''}}" style="{{item.value === 'multicolor' ? '' : 'background:' + item.swatch}}"></view>
+              <text>{{item.label}}</text>
+            </button>
+          </view>
+        </view>
+        <view class="two-column">
+          <view class="field half">
+            <text class="field-label">厚度</text>
+            <view class="choice-row compact">
+              <button wx:for="{{thicknessOptions}}" wx:key="value" class="pill compact-pill {{form.thickness === item.value ? 'selected' : ''}}" data-field="thickness" data-value="{{item.value}}" bindtap="onSingleSelect">{{item.label}}</button>
+            </view>
+          </view>
+          <view class="field half">
+            <text class="field-label">尺码</text>
+            <input class="input" maxlength="20" placeholder="例如 M / 165/88A" value="{{form.size}}" data-field="size" bindinput="onInput" />
+          </view>
+        </view>
       </view>
-      <view class="field"><text class="field-label">购买渠道</text><input class="input" maxlength="30" placeholder="例如淘宝、线下门店" value="{{form.purchaseChannel}}" data-field="purchaseChannel" bindinput="onInput" /></view>
-    </view>
 
-    <view class="form-card">
-      <view class="title-action"><text class="section-title">✦ 单品介绍</text></view>
-      <textarea class="textarea" maxlength="300" placeholder="可手动填写单品的文字介绍" value="{{form.aiDescription}}" data-field="aiDescription" bindinput="onInput" />
-    </view>
+      <view class="form-card">
+        <text class="section-title">购买信息（选填）</text>
+        <text class="safe-note">购买信息不会被图片内容生成，请手动填写</text>
+        <view class="two-column">
+          <view class="field half"><text class="field-label">购买价格（元）</text><input class="input" type="digit" maxlength="10" placeholder="0.00" value="{{form.purchasePrice}}" data-field="purchasePrice" bindinput="onInput" /></view>
+          <view class="field half"><text class="field-label">购买日期</text><picker mode="date" end="{{today}}" value="{{form.purchaseDate}}" bindchange="onDateChange"><view class="input picker">{{form.purchaseDate || '请选择'}}</view></picker></view>
+        </view>
+        <view class="field"><text class="field-label">购买渠道</text><input class="input" maxlength="30" placeholder="例如淘宝、线下门店" value="{{form.purchaseChannel}}" data-field="purchaseChannel" bindinput="onInput" /></view>
+      </view>
 
-    <view class="form-card">
-      <text class="section-title">我的备注（选填）</text>
-      <textarea class="textarea short" maxlength="200" placeholder="记录搭配提醒、洗护建议等…" value="{{form.note}}" data-field="note" bindinput="onInput" />
-    </view>
+      <view class="form-card">
+        <view class="title-action"><text class="section-title">✦ 单品介绍</text></view>
+        <textarea class="textarea" maxlength="300" placeholder="可手动填写单品的文字介绍" value="{{form.aiDescription}}" data-field="aiDescription" bindinput="onInput" />
+      </view>
+
+      <view class="form-card">
+        <text class="section-title">我的备注（选填）</text>
+        <textarea class="textarea short" maxlength="200" placeholder="记录搭配提醒、洗护建议等…" value="{{form.note}}" data-field="note" bindinput="onInput" />
+      </view>
+    </block>
 
     <view wx:if="{{step === 3}}" class="confirm-banner">
-      <text class="confirm-title">信息已填写完成</text>
-      <text class="confirm-copy">请再检查一遍，保存后会同步到衣橱和穿搭单品列表。</text>
+      <text class="confirm-title">属性已确认</text>
+      <text class="confirm-copy">保存将在图片裁剪标准化（下一轮）完成后开放，本轮不会写入衣橱。</text>
     </view>
 
     <view class="bottom-actions">
       <button wx:if="{{step === 3}}" class="soft action-button" bindtap="backToEdit">返回修改</button>
       <button wx:else class="soft action-button" bindtap="cancel">取消</button>
-      <button wx:if="{{step === 2}}" class="primary action-button" bindtap="goToConfirm">下一步：确认</button>
-      <button wx:else class="primary action-button" loading="{{saving}}" disabled="{{saving}}" bindtap="saveItem">确认保存</button>
+      <button wx:if="{{step === 2 && stagingConfirmed}}" class="primary action-button" bindtap="goToConfirm">下一步：确认</button>
+      <button wx:elif="{{step === 3}}" class="primary action-button save-placeholder" disabled="{{true}}">裁剪标准化（下一轮）</button>
     </view>
+    <text wx:if="{{step === 3}}" class="save-note">本轮不会保存到衣橱：图片将在下一轮完成裁剪标准化后正式入库</text>
   </block>
 </view>

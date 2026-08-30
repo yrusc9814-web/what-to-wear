@@ -33,6 +33,7 @@
 11. `getUserIdentity`
 12. `updateSavedOutfit`
 13. `segmentClothing`
+14. `deleteWardrobeTemp`
 
 ## 环境变量
 
@@ -71,7 +72,7 @@ ALIBABA_CLOUD_ACCESS_KEY_ID
 ALIBABA_CLOUD_ACCESS_KEY_SECRET
 ```
 
-## segmentClothing（服饰抠图 Spike）部署步骤
+## segmentClothing（服饰抠图）部署步骤
 
 1. 上传部署 `cloudfunctions/segmentClothing`（依赖 `wx-server-sdk` 与 `@alicloud/imageseg20191230`、`@alicloud/openapi-client`、`@alicloud/tea-util`，云端安装依赖即可，无需本地 npm install）。
 2. 在微信云开发控制台为该函数配置上面两个阿里云环境变量（官方约定变量名，代码从 `process.env` 读取）。
@@ -79,7 +80,17 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET
 4. 在阿里云控制台开通「视觉智能开放平台」的「分割抠图」类目（API：SegmentCloth，endpoint 固定为华东2上海 `imageseg.cn-shanghai.aliyuncs.com`）。未开通会返回 `InvalidApi.NotPurchase`。
 5. 为该 AccessKey 所属 RAM 子账号授予 `AliyunVIAPIFullAccess` 系统权限（或按最小化原则自定义策略，仅放行 imageseg 的 SegmentCloth / SegmentClothAdvance 调用与 openplatform 文件中转授权）。
 6. 该函数只接受 `wardrobe/{openid}/tmp/` 下的 temp 图（`cloud://` fileId 且必须包含当前用户 openid）；结果 PNG 上传到 `wardrobe/{openid}/tmp/cutout_*.png`，由小程序端 `registerTempImage` 登记进现有 temp 生命周期（24 小时客户端 TTL 清扫），不建第二套清理机制。
-7. 任何一步失败都返回 `{ ok:false, errorCode, errorMessage }` 并绝不回退原图；日志只记录脱敏摘要（尺寸、字节数、错误码），不打印 URL、AccessKey 或图片内容。
+7. 结果验证除 alpha 校验外还包含前景校验：解码结果中 `alpha >= 128` 的像素数（foregroundPixelCount）必须大于 0，否则返回 `RESULT_NO_FOREGROUND`，避免用户拿到全透明空白图。
+8. 任何一步失败都返回 `{ ok:false, errorCode, errorMessage }` 并绝不回退原图；日志只记录脱敏摘要（尺寸、字节数、错误码），不打印 URL、AccessKey 或图片内容。
+
+## deleteWardrobeTemp（临时文件服务端删除）部署步骤
+
+1. 上传部署 `cloudfunctions/deleteWardrobeTemp`（仅依赖 `wx-server-sdk`，云端安装依赖即可）。
+2. 无需任何环境变量；无需数据库集合。
+3. 职责：删除调用者本人 `wardrobe/{openid}/tmp/` 前缀下的临时文件（含客户端无权限删除的抠图 cutout 文件——客户端 `wx.cloud.deleteFile` 对云函数产出的文件会返回 `STORAGE_EXCEED_AUTHORITY`）。
+4. 权限矩阵（严格白名单）：仅认 `wxContext.OPENID`；入参 `tempFileId`（单个字符串或数组，上限 10）。仅放行 `cloud://…/wardrobe/{本人 openid}/tmp/{文件名}`；他人路径、本人正式路径（`wardrobe/{openid}/` 无 `/tmp/` 段）、`references/` 路径、非 wardrobe 路径、路径穿越一律拒绝（`TEMP_DELETE_FORBIDDEN` / `TEMP_DELETE_INVALID`）。
+5. 幂等语义：删除不存在的文件按成功处理（明细 `notFound`）；混合批次整体 `ok:true` 并逐文件回报 `deleted | notFound | failed | forbidden | invalid`；全部参数非法才整体拒绝。永不接触正式资产；日志脱敏（openid 段替换为 `***`）。
+6. 小程序端 temp 清理（`app-service.deleteTempFile`）优先调用本函数，服务端入口不可用时回退客户端 `wx.cloud.deleteFile`；24 小时 TTL 清扫同样受益。
 
 ## 云数据库集合
 
@@ -113,4 +124,6 @@ outfit_records: openid ASC, clientRecordId ASC  (兼容旧随机 _id 的一次�
 - 首页智能筛选只返回符合季节、风格的已保存搭配。
 - 首页快速开始进入历史组合，不自动选中；“去搭配单品”进入穿搭 Tab。
 - 跨日重新进入后，昨日今日穿搭自动失效。
-- 上传单品成功后，「抠图预览（Spike）」按钮可发起真实抠图：成功显示透明底图与尺寸/透明像素数，失败明确展示 errorCode/errorMessage，不会回退显示原图。
+- 上传单品后自动进入抠图流程：成功显示透明底预览（棋盘格底纹）与「确认使用」，失败显示友好错误与错误码并提供「重试抠图」「重新选择」，不会回退显示原图。
+- 「确认使用」后进入属性填写；本轮保存按钮为置灰占位（「裁剪标准化（下一轮）」），不会写入衣橱。
+- 「重新选择」或取消/离开页面时，旧原图与旧抠图 temp 通过 `deleteWardrobeTemp` 服务端删除，云存储中对应文件消失。

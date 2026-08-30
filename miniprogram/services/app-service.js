@@ -830,6 +830,13 @@ function unregisterTempImage(fileId) {
   return true;
 }
 
+function readDeleteDetailStatus(data, fileId) {
+  const details = data && Array.isArray(data.details) ? data.details : null;
+  if (!details) return "";
+  const entry = details.find((item) => item && item.fileId === fileId);
+  return entry && typeof entry.status === "string" ? entry.status : "";
+}
+
 async function deleteTempFile(fileId) {
   const id = String(fileId || "");
   if (!id) return true;
@@ -839,7 +846,29 @@ async function deleteTempFile(fileId) {
     return false;
   }
   if (!/^cloud:\/\//i.test(id)) return true;
-  if (!canUseCloud() || typeof wx.cloud !== "object" || typeof wx.cloud.deleteFile !== "function") {
+  if (!canUseCloud() || typeof wx.cloud !== "object") {
+    console.warn("temp image delete skipped: cloud unavailable", id);
+    return false;
+  }
+  // Round 2A-2：云函数产出的 cutout 文件客户端无删除权限（STORAGE_EXCEED_AUTHORITY），
+  // tmp 前缀文件的清理优先走服务端 deleteWardrobeTemp；仅当服务端入口不可用/信封无明细时回退客户端删除。
+  if (typeof wx.cloud.callFunction === "function") {
+    try {
+      const data = await callFunction("deleteWardrobeTemp", { tempFileIds: [id] });
+      const status = readDeleteDetailStatus(data, id);
+      if (status === "deleted" || status === "notFound") {
+        console.log("temp image deleted via deleteWardrobeTemp", status, id);
+        return true;
+      }
+      if (status) {
+        console.warn("temp image delete rejected by server", id, status);
+        return false;
+      }
+    } catch (error) {
+      console.warn("deleteWardrobeTemp unavailable; fallback to client delete", (error && error.code) || "");
+    }
+  }
+  if (typeof wx.cloud.deleteFile !== "function") {
     console.warn("temp image delete skipped: cloud deleteFile unavailable", id);
     return false;
   }

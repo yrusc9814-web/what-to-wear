@@ -68,14 +68,15 @@ Page({
     localImagePath: '',
     imageUrl: '',
     fileId: '',
-    tempFileId: '',
+    // Round 2A-2 staging：原图临时文件与抠图结果临时文件分开维护，绝不混用
+    sourceTempFileId: '',
+    cutoutTempFileId: '',
+    stagingConfirmed: false,
     uploadState: 'idle',
     saving: false,
     cutoutState: 'idle',
-    cutoutLoading: false,
-    cutoutImageUrl: '',
-    cutoutInfo: '',
     cutoutError: '',
+    cutoutErrorCode: '',
     today: todayString(),
     form: Object.assign({}, EMPTY_FORM),
     selectedSeasons: {},
@@ -118,18 +119,22 @@ Page({
           return
         }
         const stablePath = await appService.persistLocalImage(file.tempFilePath)
+        // 重选图片：先释放旧 staging（服务端删除旧原图与旧抠图），再清空字段，
+        // 避免旧 cloud fileId 引用被覆盖后失去删除机会
+        this.releaseStagingAssets()
         this._imageGeneration = (this._imageGeneration || 0) + 1
         this.setData({
           localImagePath: stablePath,
           imageUrl: '',
           fileId: '',
+          sourceTempFileId: '',
+          cutoutTempFileId: '',
+          stagingConfirmed: false,
           uploadState: 'idle',
           step: 1,
           cutoutState: 'idle',
-          cutoutLoading: false,
-          cutoutImageUrl: '',
-          cutoutInfo: '',
-          cutoutError: ''
+          cutoutError: '',
+          cutoutErrorCode: ''
         })
         this.uploadTempImage()
       },
@@ -150,10 +155,10 @@ Page({
     const generation = this._imageGeneration || 0
     if (this._uploadingGeneration === generation) return
     this._uploadingGeneration = generation
-    const previousTemp = this.data.tempFileId || ''
+    // 重选图片：先释放旧 staging（服务端删除旧原图与旧抠图结果），失败不阻塞（TTL 兜底）
+    this.releaseStagingAssets()
     this.setData({ uploadState: 'uploading', step: 2 })
     try {
-      if (previousTemp) appService.clearTempImage(previousTemp)
       const uploaded = await appService.uploadImage(localPath, undefined, undefined, 'temp')
       if (generation !== (this._imageGeneration || 0)) {
         // 旧代际上传结果作废：若已生成临时云图，立即回收
@@ -168,10 +173,11 @@ Page({
       this.setData({
         imageUrl: uploaded.imageUrl || localPath,
         fileId: uploaded.fileId || '',
-        tempFileId: uploaded.fileId || '',
+        sourceTempFileId: uploaded.fileId || '',
         uploadState: 'success',
         step: 2
       })
+      await this.startCutout()
     } catch (error) {
       if (generation !== (this._imageGeneration || 0)) return
       this.setData({ uploadState: 'error', step: 2 })
@@ -184,41 +190,56 @@ Page({
     this.uploadTempImage()
   },
 
-  // ---- 抠图预览（Round 2A-1 Spike）：调 segmentClothing，展示透明结果或明确失败 ----
-  async previewCutout() {
-    if (this.data.cutoutLoading) return
-    const tempFileId = this.data.tempFileId
-    if (!tempFileId) return
+  // ---- 抠图（正式流程）：temp 上传成功后自动执行，成功展示透明背景预览 ----
+  async startCutout() {
+    const sourceTempFileId = this.data.sourceTempFileId
+    if (!sourceTempFileId || this.data.cutoutState === 'loading') return
+    const generation = this._imageGeneration || 0
     if (!canUseCloud()) {
       this.setData({
         cutoutState: 'error',
-        cutoutError: 'CLOUD_UNAVAILABLE：当前环境不支持云开发'
+        cutoutError: '当前环境不支持云开发，请检查网络后重试。',
+        cutoutErrorCode: 'CLOUD_UNAVAILABLE'
       })
       return
     }
-    this.setData({
-      cutoutLoading: true,
-      cutoutState: 'loading',
-      cutoutError: '',
-      cutoutImageUrl: '',
-      cutoutInfo: ''
-    })
+    this.setData({ cutoutState: 'loading', cutoutError: '', cutoutErrorCode: '', cutoutTempFileId: '' })
     try {
-      const data = await callFunction('segmentClothing', { tempFileId })
+      const data = await callFunction('segmentClothing', { tempFileId: sourceTempFileId })
+      if (!data || !data.resultFileId) {
+        throw new Error('抠图结果为空，请稍后重试')
+      }
+      if (generation !== (this._imageGeneration || 0)) {
+        // 过代际的抠图结果：立即回收，不写入 UI
+        appService.clearTempImage(data.resultFileId)
+        return
+      }
       appService.registerTempImage(data.resultFileId)
-      this.setData({
-        cutoutLoading: false,
-        cutoutState: 'success',
-        cutoutImageUrl: data.resultFileId,
-        cutoutInfo: `${data.width}×${data.height} · 透明像素 ${data.transparentPixelCount}`
-      })
+      this.setData({ cutoutState: 'success', cutoutTempFileId: data.resultFileId })
     } catch (error) {
+      if (generation !== (this._imageGeneration || 0)) return
       this.setData({
-        cutoutLoading: false,
         cutoutState: 'error',
-        cutoutError: `${(error && error.code) || 'CALL_FAILED'}：${(error && error.message) || '抠图失败，请稍后重试'}`
+        cutoutError: (error && error.message) || '抠图失败，请稍后重试',
+        cutoutErrorCode: (error && error.code) || 'CALL_FAILED'
       })
     }
+  },
+
+  retryCutout() {
+    return this.startCutout()
+  },
+
+  // 「确认使用」仅表示认可抠图结果并进入属性填写；本轮不触发任何保存
+  confirmCutout() {
+    if (this.data.cutoutState !== 'success' || !this.data.cutoutTempFileId) return
+    this.setData({ stagingConfirmed: true, step: 2 })
+    wx.pageScrollTo({ scrollTop: 0, duration: 250 })
+  },
+
+  // 重新选择：回到选图区；旧 staging 文件统一由下一次上传/取消/离开释放
+  rechooseImage() {
+    this.setData({ step: 1 })
   },
 
   onInput(event) {
@@ -278,6 +299,20 @@ Page({
     return ''
   },
 
+  // 释放当前 staging 的服务端临时文件（原图 + 抠图结果）。
+  // 仅处理 wardrobe/{openid}/tmp/ 前缀的 staging 字段；删除失败不阻塞（TTL 兜底重试）。
+  // 释放的同时清空页面引用，避免旧 cloud fileId 残留在新 staging 中。
+  releaseStagingAssets() {
+    const ids = []
+    if (this.data.sourceTempFileId) ids.push(this.data.sourceTempFileId)
+    if (this.data.cutoutTempFileId) ids.push(this.data.cutoutTempFileId)
+    ids.forEach((fileId) => {
+      Promise.resolve(appService.clearTempImage(fileId)).catch(() => {})
+    })
+    if (ids.length) this.setData({ sourceTempFileId: '', cutoutTempFileId: '' })
+    return ids
+  },
+
   async resolveFormalImage(localPath) {
     let uploaded = null
     try {
@@ -303,6 +338,16 @@ Page({
 
   async saveItem() {
     if (this.data.saving) return
+    // Round 2A-2：抠图 staging 状态下保存尚未开放（裁剪标准化在下一轮），
+    // 明确提示而不是静默失败，更不能假装保存成功。
+    if (this.data.sourceTempFileId || this.data.cutoutTempFileId) {
+      wx.showModal({
+        title: '保存暂未开放',
+        content: '图片将在下一轮完成裁剪标准化后才会保存到衣橱，本轮不会写入任何数据。',
+        showCancel: false
+      })
+      return
+    }
     const message = this.validate()
     if (message) {
       wx.showToast({ title: message, icon: 'none' })
@@ -311,7 +356,7 @@ Page({
     this.setData({ saving: true })
     wx.showLoading({ title: '保存中', mask: true })
     this._imageGeneration = (this._imageGeneration || 0) + 1
-    const tempFileId = this.data.tempFileId || ''
+    const sourceTempFileId = this.data.sourceTempFileId || ''
     try {
       let imageUrl = this.data.imageUrl
       let fileId = this.data.fileId
@@ -341,9 +386,9 @@ Page({
       })
       this._saved = true
       appService.unregisterTempImage(fileId)
-      if (tempFileId && tempFileId !== fileId) {
-        appService.clearTempImage(tempFileId)
-        this.setData({ tempFileId: '' })
+      if (sourceTempFileId && sourceTempFileId !== fileId) {
+        appService.clearTempImage(sourceTempFileId)
+        this.setData({ sourceTempFileId: '' })
       }
       if (saved.syncStatus === 'synced') {
         wx.showToast({ title: '保存成功', icon: 'success' })
@@ -364,20 +409,20 @@ Page({
     }
   },
 
-  cleanupTempImage() {
-    const tempFileId = this.data.tempFileId || ''
-    if (!tempFileId) return
-    appService.clearTempImage(tempFileId)
+  // 清理 staging（取消 / 离开页面，未转正式前）：删除原图与抠图结果并复位状态
+  cleanupStaging() {
+    this._imageGeneration = (this._imageGeneration || 0) + 1
+    this.releaseStagingAssets()
     this.setData({
-      tempFileId: '',
+      sourceTempFileId: '',
+      cutoutTempFileId: '',
+      stagingConfirmed: false,
       uploadState: 'idle',
       fileId: '',
       imageUrl: '',
       cutoutState: 'idle',
-      cutoutLoading: false,
-      cutoutImageUrl: '',
-      cutoutInfo: '',
-      cutoutError: ''
+      cutoutError: '',
+      cutoutErrorCode: ''
     })
   },
 
@@ -389,7 +434,7 @@ Page({
       confirmColor: '#d85d70',
       success: ({ confirm }) => {
         if (confirm) {
-          this.cleanupTempImage()
+          this.cleanupStaging()
           wx.navigateBack()
         }
       }
@@ -398,6 +443,6 @@ Page({
 
   onUnload() {
     if (this._saved) return
-    this.cleanupTempImage()
+    this.cleanupStaging()
   }
 })
