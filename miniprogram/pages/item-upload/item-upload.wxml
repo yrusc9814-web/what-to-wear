@@ -48,6 +48,17 @@
       </view>
     </view>
 
+    <view wx:if="{{uploadState === 'success' && tempFileId}}" class="form-card cutout-card">
+      <text class="section-title">抠图预览（Spike）</text>
+      <text class="section-copy">验证真实服饰抠图链路：调用阿里云 SegmentCloth 生成带透明通道的 PNG，结果按临时图 24 小时自动清理。</text>
+      <button class="soft small-button cutout-button" loading="{{cutoutLoading}}" disabled="{{cutoutLoading}}" bindtap="previewCutout">{{cutoutLoading ? '正在抠图…' : '生成抠图预览'}}</button>
+      <block wx:if="{{cutoutState === 'success'}}">
+        <view class="cutout-canvas"><image src="{{cutoutImageUrl}}" mode="aspectFit" /></view>
+        <text class="cutout-meta">✓ {{cutoutInfo}}</text>
+      </block>
+      <text wx:elif="{{cutoutState === 'error'}}" class="cutout-error">抠图失败：{{cutoutError}}</text>
+    </view>
+
     <view class="form-card">
       <text class="section-title">基础信息（必填）</text>
       <view class="field">

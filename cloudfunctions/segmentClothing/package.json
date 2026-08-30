@@ -1,0 +1,11 @@
+{
+  "name": "segmentClothing",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest",
+    "@alicloud/imageseg20191230": "^3.0.1",
+    "@alicloud/openapi-client": "^0.4.10",
+    "@alicloud/tea-util": "^1.4.9"
+  }
+}

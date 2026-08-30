@@ -32,6 +32,7 @@
 10. `clearUserData`
 11. `getUserIdentity`
 12. `updateSavedOutfit`
+13. `segmentClothing`
 
 ## 环境变量
 
@@ -62,6 +63,23 @@ QWEN_VL_MODEL=qwen-vl-plus
 ```
 
 未配置密钥、图片不属于当前用户、响应超时或模型返回不合规时，页面会进入手动填写流程，不会伪造 AI 识别结果。
+
+`segmentClothing`（真实服饰抠图 Spike）必填（只需配置以下变量名，值在微信云开发控制台按阿里云 RAM 实际值填写，不要提交到仓库）：
+
+```text
+ALIBABA_CLOUD_ACCESS_KEY_ID
+ALIBABA_CLOUD_ACCESS_KEY_SECRET
+```
+
+## segmentClothing（服饰抠图 Spike）部署步骤
+
+1. 上传部署 `cloudfunctions/segmentClothing`（依赖 `wx-server-sdk` 与 `@alicloud/imageseg20191230`、`@alicloud/openapi-client`、`@alicloud/tea-util`，云端安装依赖即可，无需本地 npm install）。
+2. 在微信云开发控制台为该函数配置上面两个阿里云环境变量（官方约定变量名，代码从 `process.env` 读取）。
+3. 建议将该函数的「超时时间」从默认 20 秒调整为 60 秒：VIAPI 同步分割加结果下载与上传可能超过 20 秒。
+4. 在阿里云控制台开通「视觉智能开放平台」的「分割抠图」类目（API：SegmentCloth，endpoint 固定为华东2上海 `imageseg.cn-shanghai.aliyuncs.com`）。未开通会返回 `InvalidApi.NotPurchase`。
+5. 为该 AccessKey 所属 RAM 子账号授予 `AliyunVIAPIFullAccess` 系统权限（或按最小化原则自定义策略，仅放行 imageseg 的 SegmentCloth / SegmentClothAdvance 调用与 openplatform 文件中转授权）。
+6. 该函数只接受 `wardrobe/{openid}/tmp/` 下的 temp 图（`cloud://` fileId 且必须包含当前用户 openid）；结果 PNG 上传到 `wardrobe/{openid}/tmp/cutout_*.png`，由小程序端 `registerTempImage` 登记进现有 temp 生命周期（24 小时客户端 TTL 清扫），不建第二套清理机制。
+7. 任何一步失败都返回 `{ ok:false, errorCode, errorMessage }` 并绝不回退原图；日志只记录脱敏摘要（尺寸、字节数、错误码），不打印 URL、AccessKey 或图片内容。
 
 ## 云数据库集合
 
@@ -95,3 +113,4 @@ outfit_records: openid ASC, clientRecordId ASC  (兼容旧随机 _id 的一次�
 - 首页智能筛选只返回符合季节、风格的已保存搭配。
 - 首页快速开始进入历史组合，不自动选中；“去搭配单品”进入穿搭 Tab。
 - 跨日重新进入后，昨日今日穿搭自动失效。
+- 上传单品成功后，「抠图预览（Spike）」按钮可发起真实抠图：成功显示透明底图与尺寸/透明像素数，失败明确展示 errorCode/errorMessage，不会回退显示原图。

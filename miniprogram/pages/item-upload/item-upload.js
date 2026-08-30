@@ -1,4 +1,5 @@
 const appService = require('../../services/app-service')
+const { canUseCloud, callFunction } = require('../../services/cloud')
 const {
   CATEGORIES,
   SEASONS,
@@ -70,6 +71,11 @@ Page({
     tempFileId: '',
     uploadState: 'idle',
     saving: false,
+    cutoutState: 'idle',
+    cutoutLoading: false,
+    cutoutImageUrl: '',
+    cutoutInfo: '',
+    cutoutError: '',
     today: todayString(),
     form: Object.assign({}, EMPTY_FORM),
     selectedSeasons: {},
@@ -118,7 +124,12 @@ Page({
           imageUrl: '',
           fileId: '',
           uploadState: 'idle',
-          step: 1
+          step: 1,
+          cutoutState: 'idle',
+          cutoutLoading: false,
+          cutoutImageUrl: '',
+          cutoutInfo: '',
+          cutoutError: ''
         })
         this.uploadTempImage()
       },
@@ -171,6 +182,43 @@ Page({
 
   retryUpload() {
     this.uploadTempImage()
+  },
+
+  // ---- 抠图预览（Round 2A-1 Spike）：调 segmentClothing，展示透明结果或明确失败 ----
+  async previewCutout() {
+    if (this.data.cutoutLoading) return
+    const tempFileId = this.data.tempFileId
+    if (!tempFileId) return
+    if (!canUseCloud()) {
+      this.setData({
+        cutoutState: 'error',
+        cutoutError: 'CLOUD_UNAVAILABLE：当前环境不支持云开发'
+      })
+      return
+    }
+    this.setData({
+      cutoutLoading: true,
+      cutoutState: 'loading',
+      cutoutError: '',
+      cutoutImageUrl: '',
+      cutoutInfo: ''
+    })
+    try {
+      const data = await callFunction('segmentClothing', { tempFileId })
+      appService.registerTempImage(data.resultFileId)
+      this.setData({
+        cutoutLoading: false,
+        cutoutState: 'success',
+        cutoutImageUrl: data.resultFileId,
+        cutoutInfo: `${data.width}×${data.height} · 透明像素 ${data.transparentPixelCount}`
+      })
+    } catch (error) {
+      this.setData({
+        cutoutLoading: false,
+        cutoutState: 'error',
+        cutoutError: `${(error && error.code) || 'CALL_FAILED'}：${(error && error.message) || '抠图失败，请稍后重试'}`
+      })
+    }
   },
 
   onInput(event) {
@@ -320,7 +368,17 @@ Page({
     const tempFileId = this.data.tempFileId || ''
     if (!tempFileId) return
     appService.clearTempImage(tempFileId)
-    this.setData({ tempFileId: '', uploadState: 'idle', fileId: '', imageUrl: '' })
+    this.setData({
+      tempFileId: '',
+      uploadState: 'idle',
+      fileId: '',
+      imageUrl: '',
+      cutoutState: 'idle',
+      cutoutLoading: false,
+      cutoutImageUrl: '',
+      cutoutInfo: '',
+      cutoutError: ''
+    })
   },
 
   cancel() {
