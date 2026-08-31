@@ -6,19 +6,26 @@ const fs = require("fs");
 const os = require("os");
 
 const root = path.resolve(__dirname, "..");
-const ENTRY = path.resolve(root, "cloudfunctions/standardizeClothingImage/index.js");
-const GEOMETRY = path.resolve(root, "cloudfunctions/standardizeClothingImage/image-standardize.js");
+const FUNCTION_DIR = path.resolve(root, "cloudfunctions/standardizeClothingImage");
+const ENTRY = path.resolve(FUNCTION_DIR, "index.js");
+const GEOMETRY = path.resolve(FUNCTION_DIR, "image-standardize.js");
 const PNG_ALPHA = path.resolve(root, "cloudfunctions/segmentClothing/png-alpha.js");
 
-// pngjs 解析顺序：PNGJS_PATH 环境变量 → 仓库根 node_modules/pngjs（pngjs 为零依赖纯 JS，
-// 直接拷贝或 npm install 均可）。云函数目录自身不携带 node_modules（部署走云端安装）。
+// 默认从生产云函数目录解析 pngjs；PNGJS_PATH 仅调试逃生口，不是常规流程。
 function resolvePngjsPath() {
-  if (process.env.PNGJS_PATH) return process.env.PNGJS_PATH;
-  const repoLocal = path.join(root, "node_modules", "pngjs");
-  if (fs.existsSync(path.join(repoLocal, "package.json"))) return repoLocal;
-  throw new Error("pngjs not found: set PNGJS_PATH or install pngjs into repo-root node_modules");
+  const productionRequire = require("module").createRequire(path.join(FUNCTION_DIR, "package.json"));
+  try {
+    productionRequire.resolve("pngjs");
+    return path.dirname(productionRequire.resolve("pngjs/package.json"));
+  } catch (error) {
+    if (process.env.PNGJS_PATH) return process.env.PNGJS_PATH;
+    throw new Error(`pngjs not found in production function dependencies: ${error.message}`);
+  }
 }
 const PNGJS_PATH = resolvePngjsPath();
+const PNGJS_VERSION = require(PNGJS_PATH + "/package.json").version;
+assert.strictEqual(PNGJS_VERSION, "7.0.0", `pngjs version must be 7.0.0, got ${PNGJS_VERSION}`);
+console.log(`[pngjs] path=${PNGJS_PATH} version=${PNGJS_VERSION}`);
 
 const OPENID = "user_123";
 const OTHER_OPENID = "other_user";
