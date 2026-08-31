@@ -1,0 +1,10 @@
+{
+  "name": "standardizeClothingImage",
+  "version": "1.0.0",
+  "main": "index.js",
+  "description": "Trim/pad/resize transparent clothing cutout PNG into staging standardizedTempFileId",
+  "dependencies": {
+    "wx-server-sdk": "latest",
+    "pngjs": "7.0.0"
+  }
+}

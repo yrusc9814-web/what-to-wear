@@ -34,6 +34,7 @@
 12. `updateSavedOutfit`
 13. `segmentClothing`
 14. `deleteWardrobeTemp`
+15. `standardizeClothingImage`（透明单品图片标准化，仅处理 cutout 临时 PNG，不写入正式衣橱）
 
 ## 环境变量
 
@@ -91,6 +92,15 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET
 4. 权限矩阵（严格白名单）：仅认 `wxContext.OPENID`；入参 `tempFileId`（单个字符串或数组，上限 10）。仅放行 `cloud://…/wardrobe/{本人 openid}/tmp/{文件名}`；他人路径、本人正式路径（`wardrobe/{openid}/` 无 `/tmp/` 段）、`references/` 路径、非 wardrobe 路径、路径穿越一律拒绝（`TEMP_DELETE_FORBIDDEN` / `TEMP_DELETE_INVALID`）。
 5. 幂等语义：删除不存在的文件按成功处理（明细 `notFound`）；混合批次整体 `ok:true` 并逐文件回报 `deleted | notFound | failed | forbidden | invalid`；全部参数非法才整体拒绝。永不接触正式资产；日志脱敏（openid 段替换为 `***`）。
 6. 小程序端 temp 清理（`app-service.deleteTempFile`）优先调用本函数，服务端入口不可用时回退客户端 `wx.cloud.deleteFile`；24 小时 TTL 清扫同样受益。
+
+## standardizeClothingImage（透明单品图片标准化）部署步骤
+
+1. 上传部署 `cloudfunctions/standardizeClothingImage`（runtime Nodejs16.13，依赖 `wx-server-sdk` 与纯 JS 库 `pngjs@7.0.0`）。`sharp@0.32.6` 已实测：云端 `--remote-npm-install` 后缺少 Linux native binary，`require("sharp")` 直接 `145 code exit unexpected`，禁止恢复 sharp。建议使用 `--remote-npm-install`。
+2. 无需环境变量，无需数据库集合。
+3. 必须将该函数超时设置为 60 秒：CLI 与 `config.json` 均无法可靠修改云函数 timeout，需在微信云开发控制台「云函数 → standardizeClothingImage → 配置 → 高级配置 → 执行超时」人工设置。真实 2.8MB cutout 云端处理约 4.3 秒，3 秒默认超时会直接 `FUNCTIONS_TIME_LIMIT_EXCEEDED`。部署后必须读取远端配置（`cli.bat cloud functions info --names standardizeClothingImage`）确认 timeout=60 后才可进入集成验收。
+4. 只接受当前用户 `wardrobe/{openid}/tmp/cutout_*.png`；拒绝 source 原图、他人文件、正式 clothing、references、arbitrary `cloud://` fileId。
+5. 结果上传到 `wardrobe/{openid}/tmp/standardized_{stamp}.png`，仍属临时 staging，可由现有 `deleteWardrobeTemp` 删除。不调用 `saveClothing`，不改正式数据模型。
+6. `png-alpha.js` 只负责 PNG 校验与 alpha / foreground 统计，不扩展为裁剪/缩放编码器。
 
 ## 云数据库集合
 
