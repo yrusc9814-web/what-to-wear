@@ -347,6 +347,10 @@ function createPageMocks() {
       return Promise.resolve({ uploadState: "success", imageUrl: `cloud://env/wardrobe/user_a/tmp/${calls.functions.length}_up.jpg`, fileId: `cloud://env/wardrobe/user_a/tmp/${calls.functions.length}_up.jpg`, storage: "cloud" });
     },
     clearTempImage(fileId) { if (fileId) calls.cleared.push(fileId); return Promise.resolve(true); },
+    standardizeCutoutImage(fileId) {
+      calls.functions.push({ name: "standardizeClothingImage", data: { cutoutTempFileId: fileId } });
+      return Promise.resolve({ standardizedTempFileId: fileId.replace("cutout_", "standardized_"), width: 2, height: 2, bytes: 10, elapsedMs: 2 });
+    },
     registerTempImage(fileId) { if (fileId) calls.registered.push(fileId); return { fileId }; },
     unregisterTempImage(fileId) { if (fileId) calls.unregistered.push(fileId); },
     sweepExpiredTempImages() { return Promise.resolve(0); },
@@ -434,12 +438,12 @@ async function partC() {
     assert.strictEqual(page.data.cutoutTempFileId, "", "抠图失败不得产生抠图结果引用（无原图 fallback）");
     assert.strictEqual(calls.created.length, 0, "抠图失败不得产生任何保存");
     assert(calls.cleared.length === 0, "抠图失败不得清理原图 temp（保留供重试抠图）");
-    // 删除失败背景下确认语义不受影响
+    // 删除失败背景下，标准化成功后确认语义不受影响
     setCloudImpl(() => Promise.resolve({ result: { ok: true, data: { resultFileId: CUT_NEW, width: 2, height: 2, hasAlpha: true, transparentPixelCount: 1, foregroundPixelCount: 3, elapsedMs: 5 } } }));
     await page.retryCutout();
     assert.strictEqual(page.data.cutoutState, "success");
-    page.confirmCutout();
-    assert.strictEqual(page.data.stagingConfirmed, true, "删除失败不得影响抠图确认语义");
+    await page.confirmCutout();
+    assert.strictEqual(page.data.stagingConfirmed, true, "标准化成功后进入属性填写状态");
     page.setData({ step: 3 });
     await page.saveItem();
     assert.strictEqual(calls.created.length, 0, "确认后保存仍被拦（本轮不保存）");
@@ -467,7 +471,7 @@ async function partC() {
     });
     const page = makePage(definition, { localImagePath: "wxfile://store/a.jpg" });
     await page.uploadTempImage();
-    page.confirmCutout();
+    await page.confirmCutout();
     page.setData({
       step: 3,
       form: { ...page.data.form, name: "确认单品", category: "top", seasons: ["summer"], styles: ["casual"] }
@@ -501,11 +505,11 @@ function partD() {
   assert(!uploadJs.includes("previewCutout") && !uploadWxml.includes("previewCutout"), "手动 Spike 抠图入口必须移除");
   assert(!uploadJs.includes("cutoutLoading") && !uploadWxml.includes("cutoutLoading"), "loading 态统一收敛到 cutoutState");
   // 抠图失败分支不得展示任何图片节点（无原图 fallback）
-  assert(/wx:elif="\{\{cutoutState === 'error'\}\}" class="staging-empty"[^>]*>/.test(uploadWxml), "抠图失败态必须是空占位节点，不得回显原图");
+  assert(uploadWxml.includes("cutoutState === 'error'") && uploadWxml.includes("class=\"staging-empty\""), "抠图失败态必须是空占位节点，不得回显原图");
   // 确认使用语义：确认按钮文案与保存占位
   assert(uploadWxml.includes("确认使用"), "必须保留「确认使用」入口");
   assert(uploadWxml.includes('disabled="{{true}}"'), "保存占位按钮必须置灰禁用");
-  assert(uploadWxml.includes("裁剪标准化（下一轮）"), "保存占位必须标注下一轮能力");
+  assert(uploadWxml.includes("正式保存（后续版本）"), "保存占位必须标注后续版本");
 
   // ---- 13. 页面含“每次请上传一件单品”提示 ----
   assert(uploadWxml.includes("每次请上传一件单品"), "选图区必须有单品提示");

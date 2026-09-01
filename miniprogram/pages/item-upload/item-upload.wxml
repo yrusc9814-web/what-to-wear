@@ -39,14 +39,21 @@
   <block wx:else>
     <view class="staging-card">
       <view class="staging-stage">
-        <block wx:if="{{uploadState === 'success' && cutoutState === 'success' && cutoutTempFileId}}">
+        <block wx:if="{{uploadState === 'success' && cutoutState === 'success' && standardizedTempFileId}}">
+          <view class="cutout-canvas"><image src="{{standardizedTempFileId}}" mode="aspectFit" /></view>
+        </block>
+        <view wx:elif="{{standardizeState === 'loading' && cutoutTempFileId}}" class="staging-loading">
+          <view class="cutout-canvas"><image class="staging-loading-image" src="{{cutoutTempFileId}}" mode="aspectFit" /></view>
+          <text class="staging-loading-text">正在处理…</text>
+        </view>
+        <block wx:elif="{{!stagingConfirmed && uploadState === 'success' && cutoutState === 'success' && cutoutTempFileId}}">
           <view class="cutout-canvas"><image src="{{cutoutTempFileId}}" mode="aspectFit" /></view>
         </block>
         <view wx:elif="{{uploadState === 'uploading' || cutoutState === 'loading'}}" class="staging-loading">
           <image class="staging-loading-image" src="{{imageUrl || localImagePath}}" mode="aspectFit" />
           <text class="staging-loading-text">{{uploadState === 'uploading' ? '正在上传图片…' : '正在抠图…'}}</text>
         </view>
-        <view wx:elif="{{cutoutState === 'error'}}" class="staging-empty"></view>
+        <view wx:elif="{{cutoutState === 'error' || stagingConfirmed}}" class="staging-empty"></view>
         <image wx:else class="staging-original" src="{{imageUrl || localImagePath}}" mode="aspectFit" />
       </view>
       <view class="staging-status">
@@ -67,11 +74,19 @@
             <button class="mini-button" bindtap="rechooseImage">重新选择</button>
           </view>
         </block>
+        <block wx:elif="{{standardizeState === 'error' && !stagingConfirmed}}">
+          <text class="status-title warning">图片处理失败</text>
+          <text class="status-copy">{{standardizeError || '图片处理失败，请重试'}}</text>
+          <view class="staging-actions">
+            <button class="primary small-button staging-confirm" bindtap="confirmCutout">重新处理</button>
+            <button class="mini-button" bindtap="rechooseImage">重新选择</button>
+          </view>
+        </block>
         <block wx:elif="{{cutoutState === 'success' && !stagingConfirmed}}">
           <text class="status-title success">✓ 抠图完成</text>
-          <text class="status-copy">已生成透明背景预览，确认使用后填写单品属性。</text>
+          <text class="status-copy">已生成透明背景预览，确认使用后处理图片并填写单品属性。</text>
           <view class="staging-actions">
-            <button class="primary small-button staging-confirm" bindtap="confirmCutout">确认使用</button>
+            <button class="primary small-button staging-confirm" loading="{{standardizeState === 'loading'}}" disabled="{{standardizeState === 'loading'}}" bindtap="confirmCutout">{{standardizeState === 'loading' ? '处理中' : '确认使用'}}</button>
             <button class="mini-button" bindtap="rechooseImage">重新选择</button>
           </view>
         </block>
@@ -160,15 +175,15 @@
 
     <view wx:if="{{step === 3}}" class="confirm-banner">
       <text class="confirm-title">属性已确认</text>
-      <text class="confirm-copy">保存将在图片裁剪标准化（下一轮）完成后开放，本轮不会写入衣橱。</text>
+      <text class="confirm-copy">正式保存暂未开放，将在后续版本提供，本轮不会写入衣橱。</text>
     </view>
 
     <view class="bottom-actions">
       <button wx:if="{{step === 3}}" class="soft action-button" bindtap="backToEdit">返回修改</button>
       <button wx:else class="soft action-button" bindtap="cancel">取消</button>
       <button wx:if="{{step === 2 && stagingConfirmed}}" class="primary action-button" bindtap="goToConfirm">下一步：确认</button>
-      <button wx:elif="{{step === 3}}" class="primary action-button save-placeholder" disabled="{{true}}">裁剪标准化（下一轮）</button>
+      <button wx:elif="{{step === 3}}" class="primary action-button save-placeholder" disabled="{{true}}">正式保存（后续版本）</button>
     </view>
-    <text wx:if="{{step === 3}}" class="save-note">本轮不会保存到衣橱：图片将在下一轮完成裁剪标准化后正式入库</text>
+    <text wx:if="{{step === 3}}" class="save-note">正式保存暂未开放，将在后续版本提供</text>
   </block>
 </view>

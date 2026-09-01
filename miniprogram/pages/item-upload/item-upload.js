@@ -71,12 +71,16 @@ Page({
     // Round 2A-2 staging：原图临时文件与抠图结果临时文件分开维护，绝不混用
     sourceTempFileId: '',
     cutoutTempFileId: '',
+    standardizedTempFileId: '',
     stagingConfirmed: false,
     uploadState: 'idle',
     saving: false,
     cutoutState: 'idle',
     cutoutError: '',
     cutoutErrorCode: '',
+    standardizeState: 'idle',
+    standardizeError: '',
+    standardizeErrorCode: '',
     today: todayString(),
     form: Object.assign({}, EMPTY_FORM),
     selectedSeasons: {},
@@ -109,7 +113,31 @@ Page({
       success: async ({ tempFiles }) => {
         const file = tempFiles && tempFiles[0]
         if (!file || !file.tempFilePath) return
+        // F2: chooseMedia 返回后第一时间递增 generation 并清理 staging（消除 stale 窗口）。
+        // 快照在此之后取，后续所有异步结果以快照校验；较晚 pick 恒赢。
+        this._imageGeneration = (this._imageGeneration || 0) + 1
+        const generation = this._imageGeneration
+        this._standardizing = null
+        this.releaseStagingAssets()
+        this.setData({
+          localImagePath: '',
+          imageUrl: '',
+          fileId: '',
+          sourceTempFileId: '',
+          cutoutTempFileId: '',
+          standardizedTempFileId: '',
+          stagingConfirmed: false,
+          uploadState: 'idle',
+          step: 1,
+          cutoutState: 'idle',
+          cutoutError: '',
+          cutoutErrorCode: '',
+          standardizeState: 'idle',
+          standardizeError: '',
+          standardizeErrorCode: ''
+        })
         const imageHeader = await readImageHeader(file.tempFilePath)
+        if (generation !== (this._imageGeneration || 0)) return
         if (!detectSupportedImageFormat(imageHeader)) {
           wx.showModal({
             title: '暂不支持此图片格式',
@@ -119,24 +147,12 @@ Page({
           return
         }
         const stablePath = await appService.persistLocalImage(file.tempFilePath)
-        // 重选图片：先释放旧 staging（服务端删除旧原图与旧抠图），再清空字段，
-        // 避免旧 cloud fileId 引用被覆盖后失去删除机会
-        this.releaseStagingAssets()
-        this._imageGeneration = (this._imageGeneration || 0) + 1
+        if (generation !== (this._imageGeneration || 0)) return
         this.setData({
           localImagePath: stablePath,
-          imageUrl: '',
-          fileId: '',
-          sourceTempFileId: '',
-          cutoutTempFileId: '',
-          stagingConfirmed: false,
-          uploadState: 'idle',
-          step: 1,
-          cutoutState: 'idle',
-          cutoutError: '',
-          cutoutErrorCode: ''
+          step: 1
         })
-        this.uploadTempImage()
+        this.uploadTempImage(generation)
       },
       fail: (error) => {
         if (error && /cancel/i.test(error.errMsg || '')) return
@@ -149,10 +165,9 @@ Page({
     })
   },
 
-  async uploadTempImage() {
+  async uploadTempImage(generation = this._imageGeneration || 0) {
     const localPath = this.data.localImagePath
     if (!localPath) return
-    const generation = this._imageGeneration || 0
     if (this._uploadingGeneration === generation) return
     this._uploadingGeneration = generation
     // 重选图片：先释放旧 staging（服务端删除旧原图与旧抠图结果），失败不阻塞（TTL 兜底）
@@ -230,15 +245,48 @@ Page({
     return this.startCutout()
   },
 
-  // 「确认使用」仅表示认可抠图结果并进入属性填写；本轮不触发任何保存
-  confirmCutout() {
+  // 「确认使用」触发抠图结果标准化，成功后才进入属性填写
+  async confirmCutout() {
     if (this.data.cutoutState !== 'success' || !this.data.cutoutTempFileId) return
-    this.setData({ stagingConfirmed: true, step: 2 })
-    wx.pageScrollTo({ scrollTop: 0, duration: 250 })
+    // 幂等：已确认/已成功时重复调用直接返回，避免覆盖 standardizedTempFileId 且不清理旧 standardized
+    if (this.data.stagingConfirmed === true || this.data.standardizeState === 'success') return
+    if (this.data.standardizeState === 'loading' || (this._standardizing !== null && this._standardizing === (this._imageGeneration || 0))) return
+    const generation = this._imageGeneration || 0
+    const cutoutId = this.data.cutoutTempFileId
+    this._standardizing = generation
+    this.setData({ standardizeState: 'loading', standardizeError: '', standardizeErrorCode: '' })
+    try {
+      const result = await appService.standardizeCutoutImage(cutoutId)
+      if ((this._imageGeneration || 0) !== generation || this.data.cutoutTempFileId !== cutoutId) {
+        if (result && result.standardizedTempFileId) {
+          Promise.resolve(appService.clearTempImage(result.standardizedTempFileId)).catch(() => {})
+        }
+        return
+      }
+      this.setData({
+        standardizedTempFileId: result.standardizedTempFileId,
+        standardizeState: 'success',
+        stagingConfirmed: true,
+        step: 2,
+        imageUrl: result.standardizedTempFileId
+      })
+      wx.pageScrollTo({ scrollTop: 0, duration: 250 })
+    } catch (error) {
+      if ((this._imageGeneration || 0) !== generation || this.data.cutoutTempFileId !== cutoutId) return
+      this.setData({
+        standardizeState: 'error',
+        standardizeError: (error && error.message) || '图片处理失败，请稍后重试',
+        standardizeErrorCode: (error && error.code) || ''
+      })
+    } finally {
+      if (this._standardizing === generation) this._standardizing = null
+    }
   },
 
-  // 重新选择：回到选图区；旧 staging 文件统一由下一次上传/取消/离开释放
+  // 重新选择：立即释放当前 staging（语义等价 cleanupStaging 但留在本页不 navigateBack），
+  // 避免 pending standardize 返回时把旧结果写回 UI
   rechooseImage() {
+    this.cleanupStaging()
     this.setData({ step: 1 })
   },
 
@@ -299,17 +347,27 @@ Page({
     return ''
   },
 
-  // 释放当前 staging 的服务端临时文件（原图 + 抠图结果）。
+  // 释放当前 staging 的服务端临时文件（原图 + 抠图结果 + 标准化结果）。
   // 仅处理 wardrobe/{openid}/tmp/ 前缀的 staging 字段；删除失败不阻塞（TTL 兜底重试）。
   // 释放的同时清空页面引用，避免旧 cloud fileId 残留在新 staging 中。
   releaseStagingAssets() {
-    const ids = []
-    if (this.data.sourceTempFileId) ids.push(this.data.sourceTempFileId)
-    if (this.data.cutoutTempFileId) ids.push(this.data.cutoutTempFileId)
+    const ids = [...new Set([
+      this.data.sourceTempFileId,
+      this.data.cutoutTempFileId,
+      this.data.standardizedTempFileId
+    ].filter(Boolean))]
     ids.forEach((fileId) => {
       Promise.resolve(appService.clearTempImage(fileId)).catch(() => {})
     })
-    if (ids.length) this.setData({ sourceTempFileId: '', cutoutTempFileId: '' })
+    this.setData({
+      sourceTempFileId: '',
+      cutoutTempFileId: '',
+      standardizedTempFileId: '',
+      stagingConfirmed: false,
+      standardizeState: 'idle',
+      standardizeError: '',
+      standardizeErrorCode: ''
+    })
     return ids
   },
 
@@ -340,10 +398,10 @@ Page({
     if (this.data.saving) return
     // Round 2A-2：抠图 staging 状态下保存尚未开放（裁剪标准化在下一轮），
     // 明确提示而不是静默失败，更不能假装保存成功。
-    if (this.data.sourceTempFileId || this.data.cutoutTempFileId) {
+    if (this.data.sourceTempFileId || this.data.cutoutTempFileId || this.data.standardizedTempFileId) {
       wx.showModal({
         title: '保存暂未开放',
-        content: '图片将在下一轮完成裁剪标准化后才会保存到衣橱，本轮不会写入任何数据。',
+        content: '正式保存暂未开放，将在后续版本提供，本轮不会写入任何数据。',
         showCancel: false
       })
       return
@@ -412,17 +470,22 @@ Page({
   // 清理 staging（取消 / 离开页面，未转正式前）：删除原图与抠图结果并复位状态
   cleanupStaging() {
     this._imageGeneration = (this._imageGeneration || 0) + 1
+    this._standardizing = null
     this.releaseStagingAssets()
     this.setData({
       sourceTempFileId: '',
       cutoutTempFileId: '',
+      standardizedTempFileId: '',
       stagingConfirmed: false,
       uploadState: 'idle',
       fileId: '',
       imageUrl: '',
       cutoutState: 'idle',
       cutoutError: '',
-      cutoutErrorCode: ''
+      cutoutErrorCode: '',
+      standardizeState: 'idle',
+      standardizeError: '',
+      standardizeErrorCode: ''
     })
   },
 

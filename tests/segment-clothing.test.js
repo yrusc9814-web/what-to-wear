@@ -703,6 +703,10 @@ async function run() {
     const appServiceMock = {
       registerTempImage(fileId) { calls.registered.push(fileId); return { fileId }; },
       clearTempImage(fileId) { if (fileId) calls.cleared.push(fileId); return Promise.resolve(true); },
+      standardizeCutoutImage(fileId) {
+        calls.registered.push(fileId.replace("cutout_", "standardized_"));
+        return Promise.resolve({ standardizedTempFileId: fileId.replace("cutout_", "standardized_"), width: 2, height: 2, bytes: 10, elapsedMs: 2 });
+      },
       unregisterTempImage() {},
       sweepExpiredTempImages() { return Promise.resolve(0); },
       createWardrobeItem() {
@@ -770,9 +774,13 @@ async function run() {
     assert.strictEqual(calls.functionName, "segmentClothing");
     assert.strictEqual(calls.functionData.tempFileId, SOURCE_ID);
 
-    // 确认使用 → 仅进入属性填写状态；保存路径被拦（staging），绝不调用 createWardrobeItem
-    page.confirmCutout();
-    assert.strictEqual(page.data.stagingConfirmed, true, "确认使用后进入属性填写状态");
+    // 确认使用 → 先标准化，成功后进入属性填写状态；保存路径被拦（staging）
+    const STANDARD_ID = CUT_FILE_ID.replace("cutout_", "standardized_");
+    await page.confirmCutout();
+    assert.strictEqual(page.data.standardizeState, "success", "确认使用后必须完成标准化");
+    assert.strictEqual(page.data.stagingConfirmed, true, "标准化成功后进入属性填写状态");
+    // 成功路径登记顺序必须精确：cutout 先、standardized 后（不得用 includes 放过）
+    assert.deepStrictEqual(calls.registered, [CUT_FILE_ID, STANDARD_ID], "登记顺序必须为 cutout 先、standardized 后");
     page.setData({ step: 3 });
     await page.saveItem();
     assert.strictEqual(calls.saveCalls, 0, "确认抠图后不得触发任何保存");
@@ -780,6 +788,8 @@ async function run() {
     assert.strictEqual(page.data.cutoutTempFileId, CUT_FILE_ID, "确认后 staging 引用保持不变");
 
     // 失败：友好错误 + 小字错误码，不得展示任何抠图结果或原图 fallback
+    const registeredBeforeFailure = calls.registered.slice();
+    const cutCountBefore = calls.registered.filter((id) => id.includes("cutout_")).length;
     cloudImpl = () => Promise.resolve({ result: { ok: false, errorCode: "RESULT_NO_FOREGROUND", errorMessage: "抠图结果没有可见的服饰主体，请换一张更清晰的单品图片再试。" } });
     const failedPage = makePage();
     failedPage.setData({ localImagePath: "wxfile://store/a.jpg", sourceTempFileId: SOURCE_ID, uploadState: "success" });
@@ -788,7 +798,9 @@ async function run() {
     assert(failedPage.data.cutoutError.includes("没有可见的服饰主体"), "失败必须展示友好错误信息");
     assert.strictEqual(failedPage.data.cutoutErrorCode, "RESULT_NO_FOREGROUND", "失败保留错误码便于反馈");
     assert.strictEqual(failedPage.data.cutoutTempFileId, "", "失败不得展示任何抠图结果");
-    assert(calls.registered.indexOf(CUT_FILE_ID) === calls.registered.length - 1, "失败路径不得登记 temp");
+    // 失败路径不得新增任何 temp 登记：长度与内容都不变、不得新增 CUT 条目
+    assert.deepStrictEqual(calls.registered, registeredBeforeFailure, "失败路径不得误登记 temp（长度与内容均不变）");
+    assert.strictEqual(calls.registered.filter((id) => id.includes("cutout_")).length, cutCountBefore, "失败路径不得新增 CUT 登记");
 
     // 云函数 reject（如网络失败）也要落到明确错误
     cloudImpl = () => Promise.reject(Object.assign(new Error("当前环境不支持云开发"), { code: "CLOUD_UNAVAILABLE" }));

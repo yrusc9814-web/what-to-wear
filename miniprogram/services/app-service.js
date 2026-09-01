@@ -903,6 +903,29 @@ async function sweepExpiredTempImages(now = Date.now()) {
   return swept;
 }
 
+async function standardizeCutoutImage(cutoutTempFileId) {
+  if (typeof cutoutTempFileId !== "string" || !cutoutTempFileId.trim()) {
+    const error = new Error("抠图结果无效，请重试");
+    error.code = "INVALID_CUTOUT_TEMP_FILE_ID";
+    throw error;
+  }
+  const data = await callFunction("standardizeClothingImage", { cutoutTempFileId });
+  if (!data || typeof data.standardizedTempFileId !== "string" || !data.standardizedTempFileId.trim()) {
+    const error = new Error("标准化结果为空，请稍后重试");
+    error.code = "STANDARDIZE_INVALID_RESULT";
+    throw error;
+  }
+  registerTempImage(data.standardizedTempFileId);
+  return {
+    ...data,
+    standardizedTempFileId: data.standardizedTempFileId,
+    width: data.width,
+    height: data.height,
+    bytes: data.bytes,
+    elapsedMs: data.elapsedMs
+  };
+}
+
 async function createWardrobeItem(payload) {
   validateWardrobeWrite(payload || {});
   const normalized = normalizeWardrobeItem({ ...payload, id: uniqueId("item"), mutationVersion: 1, createdAt: Date.now(), updatedAt: Date.now() });
@@ -1532,6 +1555,7 @@ module.exports = {
   registerTempImage,
   unregisterTempImage,
   clearTempImage,
+  standardizeCutoutImage,
   sweepExpiredTempImages,
   recognizeWardrobeItem,
   analyzeClothing,
