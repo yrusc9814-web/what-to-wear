@@ -26,6 +26,17 @@ function isOwnedCloudFileId(fileId, openid) {
     && value.length <= 512;
 }
 
+// 正式服装图片边界：属于 wardrobe/{openid}/ 且不含 /tmp/、/references/。
+// 允许 legacy wardrobe/{openid}/<旧文件名> 与 wardrobe/{openid}/clothing/<sha256>.png。
+// 临时/非正式图片（source/cutout/standardized）与 references 一律视为非正式。
+function isFormalClothingCloudFileId(fileId, openid) {
+  const value = normalizeCloudFileId(fileId);
+  if (!isOwnedCloudFileId(value, openid)) return false;
+  if (value.includes("/tmp/")) return false;
+  if (value.includes("/references/")) return false;
+  return true;
+}
+
 async function validateCloudFileId(fileId, openid, cache = new Map()) {
   const value = normalizeCloudFileId(fileId);
   if (!isOwnedCloudFileId(value, openid)) return false;
@@ -249,6 +260,7 @@ module.exports = {
   getOpenId,
   getDatabase,
   isOwnedCloudFileId,
+  isFormalClothingCloudFileId,
   validateCloudFileId,
   stableRecordId,
   mutationIdentity,

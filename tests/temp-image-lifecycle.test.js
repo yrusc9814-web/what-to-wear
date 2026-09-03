@@ -303,10 +303,10 @@ async function run() {
       setData(patch) { Object.assign(this.data, patch); }
     };
     await page.saveItem();
-    assert.strictEqual(calls.created.length, 0, "Round 2A-2：staging 状态下绝不调用 createWardrobeItem");
-    assert.strictEqual(modalCalls.includes("保存暂未开放"), true, "必须给用户明确的“保存未开放”提示，不得静默失败");
+    assert.strictEqual(calls.created.length, 0, "Round 2A-4：未完成标准化的 staging 状态下绝不调用 createWardrobeItem");
     assert(!calls.purposes.includes("clothing"), "staging 状态下不得发起正式用途上传");
     assert(!calls.clearTemp.includes("cloud://env/wardrobe/user_a/tmp/old.jpg"), "拦住保存时不得清理 temp");
+    assert.strictEqual(page.data.sourceTempFileId, "cloud://env/wardrobe/user_a/tmp/old.jpg", "staging 必须保留供重试");
     assert.strictEqual(page.data.saving, false);
   }
 

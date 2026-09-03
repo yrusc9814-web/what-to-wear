@@ -351,10 +351,13 @@ function createPageMocks() {
       calls.functions.push({ name: "standardizeClothingImage", data: { cutoutTempFileId: fileId } });
       return Promise.resolve({ standardizedTempFileId: fileId.replace("cutout_", "standardized_"), width: 2, height: 2, bytes: 10, elapsedMs: 2 });
     },
+    promoteStandardizedClothingAsset(fileId) {
+      return Promise.resolve({ formalImageFileId: fileId.replace("/tmp/standardized_", "/clothing/").replace(".png", "_formal.png"), sha256: "abc", width: 2, height: 2, bytes: 10, status: "PROMOTED" });
+    },
     registerTempImage(fileId) { if (fileId) calls.registered.push(fileId); return { fileId }; },
     unregisterTempImage(fileId) { if (fileId) calls.unregistered.push(fileId); },
     sweepExpiredTempImages() { return Promise.resolve(0); },
-    createWardrobeItem(payload) { calls.created.push(payload); return Promise.resolve({ syncStatus: "synced", id: "item_1" }); }
+    createWardrobeItem(payload) { calls.created.push(payload); return Promise.resolve({ syncStatus: "synced", id: payload.clientRecordId, imageFileId: payload.imageFileId }); }
   };
   let cloudImpl = null;
   const cloudMock = {
@@ -444,10 +447,10 @@ async function partC() {
     assert.strictEqual(page.data.cutoutState, "success");
     await page.confirmCutout();
     assert.strictEqual(page.data.stagingConfirmed, true, "标准化成功后进入属性填写状态");
+    // V1.5: 未填属性时 validate 先拦，不触发 create
     page.setData({ step: 3 });
     await page.saveItem();
-    assert.strictEqual(calls.created.length, 0, "确认后保存仍被拦（本轮不保存）");
-    assert(calls.modalTitles.includes("保存暂未开放"));
+    assert.strictEqual(calls.created.length, 0, "属性未填时保存被 validate 拦住，不得调用 createWardrobeItem");
     // 离开页面：onUnload 清理 staging，且只触碰 staging 字段里的 tmp 文件
     const stagingSource = page.data.sourceTempFileId;
     const stagingCut = page.data.cutoutTempFileId;
@@ -458,7 +461,7 @@ async function partC() {
     assert(page.data.sourceTempFileId === "" && page.data.cutoutTempFileId === "", "离开后 staging 字段复位");
   }
 
-  // ---- C4（任务 14）：确认 cutout 后零保存调用（createWardrobeItem / saveClothing） ----
+  // ---- C4（任务 14 更新）：确认 cutout 后 V1.5 保存正式启用 ----
   {
     const { calls, serviceMock, cloudMock, wxMock, setCloudImpl } = createPageMocks();
     global.wx = wxMock;
@@ -478,9 +481,10 @@ async function partC() {
     });
     page.goToConfirm();
     await page.saveItem();
-    assert.strictEqual(calls.created.length, 0, "确认 cutout 后不得调用 createWardrobeItem");
-    assert(!calls.functions.some((entry) => entry.name === "saveClothing"), "确认 cutout 后不得调用 saveClothing");
-    assert(calls.modalTitles.includes("保存暂未开放"), "保存路径必须给出明确占位提示");
+    assert.strictEqual(calls.created.length, 1, "确认 cutout 后 V1.5 保存必须调用 createWardrobeItem");
+    assert(calls.created[0].imageFileId.includes("/clothing/"), "保存 payload 必须引用正式 clothing 资产");
+    assert(!/\/tmp\//.test(calls.created[0].imageFileId), "保存 payload 不得引用 tmp 文件");
+    assert(!calls.functions.some((entry) => entry.name === "saveClothing"), "不得直接调用 saveClothing（应走 createWardrobeItem 队列）");
     assert.strictEqual(page.data.saving, false);
   }
 }
@@ -506,10 +510,10 @@ function partD() {
   assert(!uploadJs.includes("cutoutLoading") && !uploadWxml.includes("cutoutLoading"), "loading 态统一收敛到 cutoutState");
   // 抠图失败分支不得展示任何图片节点（无原图 fallback）
   assert(uploadWxml.includes("cutoutState === 'error'") && uploadWxml.includes("class=\"staging-empty\""), "抠图失败态必须是空占位节点，不得回显原图");
-  // 确认使用语义：确认按钮文案与保存占位
+  // 确认使用语义：确认按钮文案与保存按钮
   assert(uploadWxml.includes("确认使用"), "必须保留「确认使用」入口");
-  assert(uploadWxml.includes('disabled="{{true}}"'), "保存占位按钮必须置灰禁用");
-  assert(uploadWxml.includes("正式保存（后续版本）"), "保存占位必须标注后续版本");
+  assert(uploadWxml.includes("saveItem") || uploadWxml.includes("bindtap=\"saveItem\""), "保存按钮必须绑定 saveItem");
+  assert(uploadWxml.includes("保存"), "保存按钮必须有文案");
 
   // ---- 13. 页面含“每次请上传一件单品”提示 ----
   assert(uploadWxml.includes("每次请上传一件单品"), "选图区必须有单品提示");

@@ -1,0 +1,10 @@
+{
+  "name": "promoteClothingAsset",
+  "version": "1.0.0",
+  "main": "index.js",
+  "description": "Promote a standardized staging PNG into content-addressed formal clothing asset under wardrobe/{openid}/clothing/{sha256}.png",
+  "dependencies": {
+    "wx-server-sdk": "latest",
+    "pngjs": "7.0.0"
+  }
+}

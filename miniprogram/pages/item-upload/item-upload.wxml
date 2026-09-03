@@ -175,15 +175,15 @@
 
     <view wx:if="{{step === 3}}" class="confirm-banner">
       <text class="confirm-title">属性已确认</text>
-      <text class="confirm-copy">正式保存暂未开放，将在后续版本提供，本轮不会写入衣橱。</text>
+      <text class="confirm-copy">确认信息无误后，点击下方按钮正式保存到衣橱。</text>
     </view>
 
     <view class="bottom-actions">
       <button wx:if="{{step === 3}}" class="soft action-button" bindtap="backToEdit">返回修改</button>
       <button wx:else class="soft action-button" bindtap="cancel">取消</button>
       <button wx:if="{{step === 2 && stagingConfirmed}}" class="primary action-button" bindtap="goToConfirm">下一步：确认</button>
-      <button wx:elif="{{step === 3}}" class="primary action-button save-placeholder" disabled="{{true}}">正式保存（后续版本）</button>
+      <button wx:elif="{{step === 3}}" class="primary action-button" disabled="{{!(stagingConfirmed && standardizeState === 'success') || saving}}" loading="{{saving}}" bindtap="saveItem">{{saving ? '保存中…' : '保存'}}</button>
     </view>
-    <text wx:if="{{step === 3}}" class="save-note">正式保存暂未开放，将在后续版本提供</text>
+    <text wx:if="{{step === 3}}" class="save-note">保存后图片将正式存入衣橱，可在衣橱中查看和管理。</text>
   </block>
 </view>

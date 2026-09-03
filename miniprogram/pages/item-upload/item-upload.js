@@ -105,6 +105,14 @@ Page({
   },
 
   chooseImage(sourceType) {
+    if (this._saveInFlight) {
+      wx.showModal({
+        title: '正在保存',
+        content: '正在保存，请稍候',
+        showCancel: false
+      });
+      return;
+    }
     wx.chooseMedia({
       count: 1,
       mediaType: ['image'],
@@ -118,6 +126,9 @@ Page({
         this._imageGeneration = (this._imageGeneration || 0) + 1
         const generation = this._imageGeneration
         this._standardizing = null
+        // Round 2A-4: 新 staging 清空旧 save intent/cache（clientRecordId、promoted 结果）
+        this._saveClientRecordId = null
+        this._promotedAsset = null
         this.releaseStagingAssets()
         this.setData({
           localImagePath: '',
@@ -247,6 +258,7 @@ Page({
 
   // 「确认使用」触发抠图结果标准化，成功后才进入属性填写
   async confirmCutout() {
+    if (this._saveInFlight) return
     if (this.data.cutoutState !== 'success' || !this.data.cutoutTempFileId) return
     // 幂等：已确认/已成功时重复调用直接返回，避免覆盖 standardizedTempFileId 且不清理旧 standardized
     if (this.data.stagingConfirmed === true || this.data.standardizeState === 'success') return
@@ -286,10 +298,17 @@ Page({
   // 重新选择：立即释放当前 staging（语义等价 cleanupStaging 但留在本页不 navigateBack），
   // 避免 pending standardize 返回时把旧结果写回 UI
   rechooseImage() {
+    if (this._saveInFlight) {
+      wx.showModal({
+        title: '正在保存',
+        content: '正在保存，请稍候',
+        showCancel: false
+      });
+      return;
+    }
     this.cleanupStaging()
     this.setData({ step: 1 })
   },
-
   onInput(event) {
     const field = event.currentTarget.dataset.field
     this.setData({ [`form.${field}`]: event.detail.value })
@@ -395,35 +414,153 @@ Page({
   },
 
   async saveItem() {
+    // Round 2A-4: 保存锁 — 双重校验
     if (this.data.saving) return
-    // Round 2A-2：抠图 staging 状态下保存尚未开放（裁剪标准化在下一轮），
-    // 明确提示而不是静默失败，更不能假装保存成功。
-    if (this.data.sourceTempFileId || this.data.cutoutTempFileId || this.data.standardizedTempFileId) {
-      wx.showModal({
-        title: '保存暂未开放',
-        content: '正式保存暂未开放，将在后续版本提供，本轮不会写入任何数据。',
-        showCancel: false
-      })
+    if (this._saveInFlight) return
+    // 仅当 V1.5 staging 完整确认时才允许正式保存
+    const isV15Save = this.data.stagingConfirmed === true && this.data.standardizeState === 'success' && !!this.data.standardizedTempFileId
+    if (!isV15Save) {
+      // 非 V1.5 staging 路径：无任何 staging 时走 legacy V1.4 保存（保留旧行为）
+      if (!this.data.sourceTempFileId && !this.data.cutoutTempFileId && !this.data.standardizedTempFileId) {
+        return this._legacySaveItem()
+      }
+      // 部分 staging：不保存、保留 staging 供重试
+      wx.showToast({ title: '请先完成图片处理并确认', icon: 'none' })
       return
     }
+    // 表单校验先跑
     const message = this.validate()
     if (message) {
       wx.showToast({ title: message, icon: 'none' })
       return
     }
+    const generation = (this._imageGeneration || 0)
+    this._saveInFlight = true
+    this._unloaded = false
+    this.setData({ saving: true })
+    wx.showLoading({ title: '正式保存…', mask: true })
+
+    // 快照：锁定当前 staging 与表单
+    const snapshot = {
+      generation,
+      sourceTempFileId: this.data.sourceTempFileId,
+      cutoutTempFileId: this.data.cutoutTempFileId,
+      standardizedTempFileId: this.data.standardizedTempFileId,
+      form: JSON.parse(JSON.stringify(this.data.form)),
+      imageUrl: this.data.imageUrl,
+      fileId: this.data.fileId
+    }
+    if (!this._saveClientRecordId) {
+      this._saveClientRecordId = `item_${Date.now()}_${Math.random().toString(16).slice(2)}`
+    }
+    const clientRecordId = this._saveClientRecordId
+
+    try {
+      // 1. promote standardized temp → formal
+      let formalResult
+      if (this._promotedAsset && this._promotedAsset.standardizedTempFileId === snapshot.standardizedTempFileId) {
+        formalResult = this._promotedAsset
+      } else {
+        formalResult = await appService.promoteStandardizedClothingAsset(snapshot.standardizedTempFileId)
+        this._promotedAsset = {
+          ...formalResult,
+          standardizedTempFileId: snapshot.standardizedTempFileId
+        }
+      }
+      const formalImageFileId = formalResult.formalImageFileId
+
+      // 2. create wardrobe item — 只传 formal + 手填属性 + clientRecordId
+      const form = snapshot.form
+      const saved = await appService.createWardrobeItem({
+        imageFileId: formalImageFileId,
+        imageUrl: formalImageFileId,
+        fileId: formalImageFileId,
+        name: form.name.trim(),
+        category: form.category,
+        seasons: form.seasons,
+        styles: form.styles,
+        primaryColor: form.primaryColor,
+        thickness: form.thickness,
+        size: form.size.trim(),
+        purchasePrice: form.purchasePrice === '' ? null : Number(form.purchasePrice),
+        purchaseDate: form.purchaseDate,
+        purchaseChannel: form.purchaseChannel.trim(),
+        aiDescription: form.aiDescription.trim(),
+        note: form.note.trim(),
+        deletedAt: null,
+        clientRecordId
+      })
+
+      // commit point
+      if (saved.id !== clientRecordId || saved.imageFileId !== formalImageFileId) {
+        throw new Error('保存结果异常，请刷新后重试')
+      }
+      this._saved = true
+
+      // 成功后 cleanup 三 temp（best-effort，失败不回滚 Clothing）
+      const cleanupIds = [snapshot.sourceTempFileId, snapshot.cutoutTempFileId, snapshot.standardizedTempFileId]
+        .filter(Boolean)
+        .filter((id) => id !== formalImageFileId)
+      cleanupIds.forEach((fileId) => {
+        Promise.resolve(appService.clearTempImage(fileId)).catch(() => {})
+      })
+
+      // UI 提示与导航（页面已销毁时不 setData/navigate）
+      if (!this._unloaded) {
+        if (saved.syncStatus === 'synced') {
+          wx.showToast({ title: '保存成功', icon: 'success' })
+          setTimeout(() => wx.navigateBack(), 500)
+        } else {
+          wx.showModal({
+            title: '已保存到本机',
+            content: saved.syncStatus === 'failed' ? '云端同步失败，稍后会自动重试。' : '云端同步待处理，身份或网络恢复后会自动重试。',
+            showCancel: false,
+            success: () => wx.navigateBack()
+          })
+        }
+      }
+    } catch (error) {
+      // promotion fail 或 create fail 均保持 staging、停留在本页、可重试同 save
+      if (!this._unloaded) {
+        wx.showToast({ title: (error && error.message) || '保存失败，请重试', icon: 'none' })
+      }
+    } finally {
+      this._saveInFlight = null
+      if (!this._unloaded) {
+        wx.hideLoading()
+        this.setData({ saving: false })
+      }
+    }
+  },
+
+  // 旧版 V1.4 保存（保留兼容，不碰 staging 拦截）。
+  // Round 2A-4：与 V1.5 共用 _saveInFlight，保存中 choose/rechoose/cancel/onUnload 不得改 staging。
+  async _legacySaveItem() {
+    if (this.data.saving) return
+    if (this._saveInFlight) return
+    const message = this.validate()
+    if (message) {
+      wx.showToast({ title: message, icon: 'none' })
+      return
+    }
+    this._saveInFlight = true
+    this._unloaded = false
     this.setData({ saving: true })
     wx.showLoading({ title: '保存中', mask: true })
     this._imageGeneration = (this._imageGeneration || 0) + 1
     const sourceTempFileId = this.data.sourceTempFileId || ''
+    const localImagePath = this.data.localImagePath
+    const snapshotImageUrl = this.data.imageUrl
+    const snapshotFileId = this.data.fileId
+    const form = JSON.parse(JSON.stringify(this.data.form))
     try {
-      let imageUrl = this.data.imageUrl
-      let fileId = this.data.fileId
-      if (this.data.localImagePath) {
-        const resolved = await this.resolveFormalImage(this.data.localImagePath)
+      let imageUrl = snapshotImageUrl
+      let fileId = snapshotFileId
+      if (localImagePath) {
+        const resolved = await this.resolveFormalImage(localImagePath)
         imageUrl = resolved.imageUrl
         fileId = resolved.fileId
       }
-      const form = this.data.form
       const saved = await appService.createWardrobeItem({
         imageUrl,
         fileId,
@@ -446,24 +583,31 @@ Page({
       appService.unregisterTempImage(fileId)
       if (sourceTempFileId && sourceTempFileId !== fileId) {
         appService.clearTempImage(sourceTempFileId)
-        this.setData({ sourceTempFileId: '' })
+        if (!this._unloaded) this.setData({ sourceTempFileId: '' })
       }
-      if (saved.syncStatus === 'synced') {
-        wx.showToast({ title: '保存成功', icon: 'success' })
-        setTimeout(() => wx.navigateBack(), 500)
-      } else {
-        wx.showModal({
-          title: '已保存到本机',
-          content: saved.syncStatus === 'failed' ? '云端同步失败，稍后会自动重试。' : '云端同步待处理，身份或网络恢复后会自动重试。',
-          showCancel: false,
-          success: () => wx.navigateBack()
-        })
+      if (!this._unloaded) {
+        if (saved.syncStatus === 'synced') {
+          wx.showToast({ title: '保存成功', icon: 'success' })
+          setTimeout(() => wx.navigateBack(), 500)
+        } else {
+          wx.showModal({
+            title: '已保存到本机',
+            content: saved.syncStatus === 'failed' ? '云端同步失败，稍后会自动重试。' : '云端同步待处理，身份或网络恢复后会自动重试。',
+            showCancel: false,
+            success: () => wx.navigateBack()
+          })
+        }
       }
     } catch (error) {
-      wx.showToast({ title: (error && error.message) || '保存失败，请重试', icon: 'none' })
+      if (!this._unloaded) {
+        wx.showToast({ title: (error && error.message) || '保存失败，请重试', icon: 'none' })
+      }
     } finally {
-      wx.hideLoading()
-      this.setData({ saving: false })
+      this._saveInFlight = null
+      if (!this._unloaded) {
+        wx.hideLoading()
+        this.setData({ saving: false })
+      }
     }
   },
 
@@ -471,6 +615,9 @@ Page({
   cleanupStaging() {
     this._imageGeneration = (this._imageGeneration || 0) + 1
     this._standardizing = null
+    // Round 2A-4: 新 staging 清空旧 save intent/cache
+    this._saveClientRecordId = null
+    this._promotedAsset = null
     this.releaseStagingAssets()
     this.setData({
       sourceTempFileId: '',
@@ -490,6 +637,14 @@ Page({
   },
 
   cancel() {
+    if (this._saveInFlight) {
+      wx.showModal({
+        title: '正在保存',
+        content: '正在保存，请稍候',
+        showCancel: false
+      });
+      return;
+    }
     wx.showModal({
       title: '放弃上传？',
       content: '当前已选图片和填写的信息将不会保存。',
@@ -505,7 +660,19 @@ Page({
   },
 
   onUnload() {
-    if (this._saved) return
+    if (this._saved) {
+      // 已保存：只清理 staging，不导航
+      const ids = [this.data.sourceTempFileId, this.data.cutoutTempFileId, this.data.standardizedTempFileId].filter(Boolean)
+      ids.forEach((fileId) => {
+        Promise.resolve(appService.clearTempImage(fileId)).catch(() => {})
+      })
+      return
+    }
+    if (this._saveInFlight) {
+      // 保存中离开：不提前删 staging，不改 save generation
+      this._unloaded = true
+      return
+    }
     this.cleanupStaging()
   }
 })

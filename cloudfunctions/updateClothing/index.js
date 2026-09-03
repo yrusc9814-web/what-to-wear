@@ -1,6 +1,7 @@
 const cloud = require("wx-server-sdk");
 const {
   getOpenId,
+  isFormalClothingCloudFileId,
   validateCloudFileId,
   applyMutation
 } = require("./shared/cloudbase");
@@ -37,6 +38,10 @@ exports.main = async (event = {}) => {
   const thickness = THICKNESSES.has(event.thickness) ? event.thickness : "";
   if (!clientRecordId || !name || !CATEGORIES.has(category) || !seasons || !styles) {
     return { ok: false, errorCode: "CLOTHING_REQUIRED", errorMessage: "请完整填写图片、分类、季节和风格。" };
+  }
+  // Round 2A-4: 正式图片边界校验 — 拒绝 tmp/references/非正式路径
+  if (!isFormalClothingCloudFileId(imageFileId, openid)) {
+    return { ok: false, errorCode: "IMAGE_FILE_INVALID", errorMessage: "编辑时必须使用当前用户真实可访问的正式云文件。" };
   }
   const imageCache = new Map();
   if (!await validateCloudFileId(imageFileId, openid, imageCache)) {

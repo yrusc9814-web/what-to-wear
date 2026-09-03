@@ -926,11 +926,107 @@ async function standardizeCutoutImage(cutoutTempFileId) {
   };
 }
 
+// Round 2A-4: 提升 standardized temp 为正式 clothing 资产
+async function promoteStandardizedClothingAsset(standardizedTempFileId) {
+  if (typeof standardizedTempFileId !== "string" || !standardizedTempFileId.trim()) {
+    const error = new Error("标准化结果无效，请重试");
+    error.code = "INVALID_STANDARDIZED_TEMP_FILE_ID";
+    throw error;
+  }
+  const data = await callFunction("promoteClothingAsset", { standardizedTempFileId });
+  if (!data || typeof data.formalImageFileId !== "string" || !data.formalImageFileId.trim()) {
+    const error = new Error("正式图片提升失败，请稍后重试");
+    error.code = "PROMOTE_INVALID_RESULT";
+    throw error;
+  }
+  if (!/\/clothing\//.test(data.formalImageFileId) || /\/tmp\//.test(data.formalImageFileId)) {
+    const error = new Error("提升结果异常，请稍后重试");
+    error.code = "PROMOTE_UNEXPECTED_PATH";
+    throw error;
+  }
+  return {
+    formalImageFileId: data.formalImageFileId,
+    sha256: data.sha256,
+    width: data.width,
+    height: data.height,
+    bytes: data.bytes,
+    status: data.status
+  };
+}
+
+// Round 2A-4: 本地幂等判定忽略的同步元数据字段。
+// 业务等价判定只对比 normalizeWardrobeItem 既定业务字段；
+// createdAt/updatedAt/mutationVersion/syncStatus/syncError/cloudId 等一律忽略。
+const WARDROBE_BUSINESS_KEYS = [
+  "imageFileId",
+  "imageUrl",
+  "name",
+  "category",
+  "type",
+  "seasons",
+  "season",
+  "styles",
+  "style",
+  "primaryColor",
+  "mainColor",
+  "thickness",
+  "size",
+  "purchasePrice",
+  "purchaseDate",
+  "purchaseChannel",
+  "aiDescription",
+  "note",
+  "deletedAt"
+];
+
+function deepEqual(left, right) {
+  if (left === right) return true;
+  if (typeof left !== typeof right) return false;
+  if (Array.isArray(left)) {
+    if (!Array.isArray(right) || left.length !== right.length) return false;
+    return left.every((value, index) => deepEqual(value, right[index]));
+  }
+  if (left && typeof left === "object") {
+    if (!right || typeof right !== "object" || Array.isArray(right)) return false;
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    if (leftKeys.length !== rightKeys.length) return false;
+    return leftKeys.every((key, index) => rightKeys[index] === key && deepEqual(left[key], right[key]));
+  }
+  return false;
+}
+
+function businessFieldsEquivalent(left, right) {
+  return WARDROBE_BUSINESS_KEYS.every((key) => deepEqual(left[key], right[key]));
+}
+
 async function createWardrobeItem(payload) {
   validateWardrobeWrite(payload || {});
-  const normalized = normalizeWardrobeItem({ ...payload, id: uniqueId("item"), mutationVersion: 1, createdAt: Date.now(), updatedAt: Date.now() });
+  const clientRecordId = typeof payload.clientRecordId === "string" && payload.clientRecordId.trim()
+    ? payload.clientRecordId.trim()
+    : uniqueId("item");
+  const normalized = normalizeWardrobeItem({ ...payload, id: clientRecordId, mutationVersion: 1, createdAt: Date.now(), updatedAt: Date.now() });
   normalized.syncStatus = "pending";
   const items = readWardrobeAll();
+  const existing = items.find((item) => item.id === normalized.id);
+  if (existing) {
+    // Round 2A-4: 本地幂等 — 同 id 已存在记录
+    if (!businessFieldsEquivalent(normalizeWardrobeItem(existing), normalized)) {
+      const error = new Error("该单品已存在且内容不一致，请刷新后重试");
+      error.code = "CLIENT_RECORD_ID_CONFLICT";
+      throw error;
+    }
+    // 业务字段等价：不新增本地记录、不追加 outbox（queue 前先查同 entityKey+clientRecordId+mutationVersion+operation 已有 pending/failed task 则不再 queue）
+    const hasSameTask = readSyncOutbox().some((task) => (
+      task.entityKey === `wardrobe:${normalized.id}`
+      && String(task.clientRecordId) === normalized.id
+      && Number(task.mutationVersion || 0) === Number(normalized.mutationVersion || 0)
+      && task.operation === "create"
+    ));
+    if (!hasSameTask) queueSync("wardrobe", "create", normalized);
+    await reconcilePendingSync();
+    return readWardrobeAll().find((item) => item.id === normalized.id) || existing;
+  }
   write(STORAGE.wardrobe, [normalized, ...items]);
   queueSync("wardrobe", "create", normalized);
   await reconcilePendingSync();
@@ -1556,6 +1652,7 @@ module.exports = {
   unregisterTempImage,
   clearTempImage,
   standardizeCutoutImage,
+  promoteStandardizedClothingAsset,
   sweepExpiredTempImages,
   recognizeWardrobeItem,
   analyzeClothing,

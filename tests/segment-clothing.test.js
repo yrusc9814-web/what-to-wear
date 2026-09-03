@@ -707,11 +707,14 @@ async function run() {
         calls.registered.push(fileId.replace("cutout_", "standardized_"));
         return Promise.resolve({ standardizedTempFileId: fileId.replace("cutout_", "standardized_"), width: 2, height: 2, bytes: 10, elapsedMs: 2 });
       },
+      promoteStandardizedClothingAsset(fileId) {
+        return Promise.resolve({ formalImageFileId: fileId.replace("/tmp/standardized_", "/clothing/").replace(".png", "_formal.png"), sha256: "abc", width: 2, height: 2, bytes: 10, status: "PROMOTED" });
+      },
       unregisterTempImage() {},
       sweepExpiredTempImages() { return Promise.resolve(0); },
-      createWardrobeItem() {
+      createWardrobeItem(payload) {
         calls.saveCalls += 1;
-        return Promise.resolve({ syncStatus: "synced", id: "item_1" });
+        return Promise.resolve({ syncStatus: "synced", id: payload.clientRecordId, imageFileId: payload.imageFileId });
       }
     };
     let cloudImpl = null;
@@ -774,17 +777,19 @@ async function run() {
     assert.strictEqual(calls.functionName, "segmentClothing");
     assert.strictEqual(calls.functionData.tempFileId, SOURCE_ID);
 
-    // 确认使用 → 先标准化，成功后进入属性填写状态；保存路径被拦（staging）
+    // 确认使用 → 先标准化，成功后进入属性填写状态；现在保存正式启用
     const STANDARD_ID = CUT_FILE_ID.replace("cutout_", "standardized_");
     await page.confirmCutout();
     assert.strictEqual(page.data.standardizeState, "success", "确认使用后必须完成标准化");
     assert.strictEqual(page.data.stagingConfirmed, true, "标准化成功后进入属性填写状态");
     // 成功路径登记顺序必须精确：cutout 先、standardized 后（不得用 includes 放过）
     assert.deepStrictEqual(calls.registered, [CUT_FILE_ID, STANDARD_ID], "登记顺序必须为 cutout 先、standardized 后");
-    page.setData({ step: 3 });
+    page.setData({
+      step: 3,
+      form: { ...page.data.form, name: "测试单品", category: "top", seasons: ["summer"], styles: ["casual"] }
+    });
     await page.saveItem();
-    assert.strictEqual(calls.saveCalls, 0, "确认抠图后不得触发任何保存");
-    assert(calls.modalTitles.includes("保存暂未开放"), "保存被拦时必须给出明确提示，不得静默失败");
+    assert.strictEqual(calls.saveCalls, 1, "确认抠图后 V1.5 保存必须触发 createWardrobeItem");
     assert.strictEqual(page.data.cutoutTempFileId, CUT_FILE_ID, "确认后 staging 引用保持不变");
 
     // 失败：友好错误 + 小字错误码，不得展示任何抠图结果或原图 fallback
