@@ -74,7 +74,7 @@
   <view wx:elif="{{viewMode === 'grid'}}" class="item-grid">
     <view wx:for="{{visibleItems}}" wx:key="id" class="item-card" data-id="{{item.id}}" bindtap="openItem">
       <button class="more-button" catchtap="openMore" data-id="{{item.id}}" aria-label="更多操作">•••</button>
-      <view class="image-wrap">
+      <view class="image-wrap {{item.roomyImage ? 'roomy' : ''}}">
         <image wx:if="{{item.imageUrl}}" class="item-image" src="{{item.imageUrl}}" mode="aspectFit" lazy-load />
         <view wx:else class="image-placeholder">暂无图片</view>
       </view>

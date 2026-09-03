@@ -61,12 +61,13 @@ button::after { border: 0; }
 .item-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20rpx; margin-top: 28rpx; }
 .item-card { position: relative; min-width: 0; box-sizing: border-box; padding: 22rpx 18rpx 20rpx; border: 2rpx solid #f1ded8; border-radius: 30rpx; background: rgba(255,255,255,.82); box-shadow: 0 13rpx 28rpx rgba(170, 111, 119, .06); overflow: hidden; }
 .more-button { position: absolute; z-index: 2; right: 14rpx; top: 8rpx; min-width: 56rpx; min-height: 50rpx; color: #ef7090; display: flex; align-items: center; justify-content: center; letter-spacing: 3rpx; font-size: 25rpx; }
-.image-wrap { height: 250rpx; margin-top: 12rpx; padding: 16rpx 14rpx; box-sizing: border-box; border-radius: 22rpx; background: #f3eeea; display: flex; align-items: center; justify-content: center; }
+.image-wrap { height: 250rpx; margin-top: 12rpx; padding: 16rpx 14rpx; box-sizing: border-box; border-radius: 22rpx; background: #f2f0ed; display: flex; align-items: center; justify-content: center; }
+.image-wrap.roomy { padding: 28rpx 26rpx; }
 .item-image { width: 100%; height: 100%; }
 .list-image { width: 100%; height: 100%; }
-.image-placeholder { width: 100%; height: 100%; border-radius: 20rpx; background: #f3eeea; color: #b8aaa4; display: flex; align-items: center; justify-content: center; font-size: 23rpx; }
-.item-name { display: block; margin-top: 16rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 26rpx; font-weight: 400; line-height: 1.35; color: #484044; }
-.item-category { width: fit-content; display: block; margin: 10rpx auto 0; padding: 8rpx 22rpx; border-radius: 22rpx; color: #d56d86; background: #f8eef1; font-size: 22rpx; line-height: 1.2; }
+.image-placeholder { width: 100%; height: 100%; border-radius: 20rpx; background: #f2f0ed; color: #b8aaa4; display: flex; align-items: center; justify-content: center; font-size: 23rpx; }
+.item-name { display: block; margin-top: 14rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 25rpx; font-weight: 400; line-height: 1.3; color: #574e52; }
+.item-category { width: fit-content; display: block; margin: 10rpx auto 0; padding: 9rpx 26rpx; border-radius: 24rpx; color: #d56d86; background: #f8eef1; font-size: 24rpx; line-height: 1.2; }
 
 .item-list { margin-top: 28rpx; display: flex; flex-direction: column; gap: 18rpx; }
 .list-card { position: relative; gap: 22rpx; min-height: 184rpx; box-sizing: border-box; padding: 20rpx 72rpx 20rpx 20rpx; border: 2rpx solid #f1ded8; border-radius: 28rpx; background: rgba(255,255,255,.84); box-shadow: 0 12rpx 28rpx rgba(170, 111, 119, .06); }

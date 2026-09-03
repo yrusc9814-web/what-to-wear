@@ -33,6 +33,12 @@ function normalizeCategory(value, name) {
   return value || 'top'
 }
 
+function isPngUrl(value) {
+  if (typeof value !== 'string') return false
+  const path = value.split(/[?#]/)[0]
+  return path.endsWith('.png')
+}
+
 Page({
   data: {
     state: 'loading',
@@ -101,13 +107,15 @@ Page({
     const categoryLabel = labelOf(CATEGORIES, category)
     const seasonLabels = seasons.map((value) => labelOf(SEASONS, value)).filter(Boolean)
     const styleLabels = styles.map((value) => labelOf(STYLES, value)).filter(Boolean)
+    const imageUrl = item.imageUrl || item.imageFileId || item.tempFileURL || ''
     return Object.assign({}, item, {
       id: item.id || item._id,
       category,
       seasons,
       styles,
       primaryColor,
-      imageUrl: item.imageUrl || item.imageFileId || item.tempFileURL || '',
+      imageUrl,
+      roomyImage: category !== 'shoes' && isPngUrl(imageUrl),
       categoryLabel,
       primaryColorLabel: labelOf(PRIMARY_COLORS, primaryColor),
       seasonStyleText: seasonLabels.concat(styleLabels).join(' · ')
