@@ -152,6 +152,9 @@ Page({
     appService.persistOutfitDraft({
       sourceOutfitId: outfit.id,
       slots: outfit.items || outfit.slots,
+      // Round 2B-1：编辑 handoff 携带已保存 layout（与 sourceOutfitId/mode 一起），
+      // 穿搭页据此恢复保存时的画布布局；legacy 无 layout 时穿搭页回退默认布局。
+      layout: outfit.layout || null,
       title: outfit.title,
       season: outfit.season,
       style: outfit.style,

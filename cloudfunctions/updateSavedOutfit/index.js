@@ -1,6 +1,10 @@
 const cloud = require("wx-server-sdk");
 const { getOpenId, validateCloudFileId, applyMutation } = require("./shared/cloudbase");
-const { buildTrustedSlots, revalidateTrustedSlots } = require("./shared/outfit-slots");
+const {
+  buildTrustedSlots,
+  revalidateTrustedSlots,
+  alignOutfitLayout
+} = require("./shared/outfit-slots");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
@@ -45,12 +49,18 @@ exports.main = async (event = {}) => {
     allowCreate: false,
     buildRecord: async ({ current, transaction }) => {
       const finalItems = await revalidateTrustedSlots(transaction, openid, trusted);
+      // Round 2B-1：payload 显式携带 layout（含 null）时以其为准，否则沿用 current 的
+      // layout（旧客户端更新不丢 layout）；再与已复核槽位对齐并 sanitize。
+      const rawLayout = Object.prototype.hasOwnProperty.call(event, "layout")
+        ? event.layout
+        : (current && current.layout) || null;
       return {
         ...current,
         title,
         season: event.season,
         style: event.style,
         items: finalItems,
+        layout: alignOutfitLayout(rawLayout, finalItems),
         previewImageUrl: preview,
         previewFileId: preview,
         note: stringValue(event.note, 50),

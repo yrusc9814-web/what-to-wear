@@ -1,6 +1,10 @@
 const { canUseCloud, callFunction } = require("./cloud");
 const { ensurePrivacyAuthorized } = require("../utils/privacy");
 const {
+  alignLayoutToItems,
+  sanitizeLayout
+} = require("./outfit-layout");
+const {
   CATEGORIES,
   SEASONS,
   STYLES,
@@ -549,6 +553,16 @@ function normalizeOutfit(record = {}) {
   const title = record.title || record.name || record.note || "我的穿搭";
   const createdAt = toTimestamp(record.createdAt, Date.now());
   const updatedAt = toTimestamp(record.updatedAt, createdAt);
+  const items = {
+    hat: normalizeSlot(rawItems.hat || (/帽|cap|hat/i.test((oldAccessory && oldAccessory.name) || "") ? oldAccessory : null), "hat"),
+    top: normalizeSlot(rawItems.top || record.top, "top"),
+    bottom: normalizeSlot(rawItems.bottom || record.bottom, "bottom"),
+    shoes: normalizeSlot(rawItems.shoes || record.shoes, "shoes"),
+    bag: normalizeSlot(rawItems.bag || (oldAccessory && !/帽|cap|hat/i.test(oldAccessory.name || "") ? oldAccessory : null), "bag")
+  };
+  // Round 2B-1：顶层 layout 与 items 分离；legacy/缺失/非法 layout 不报错，
+  // 仅保留经 sanitize 的结果（null 时由页面 runtime fallback，不自动回填）。
+  const layout = sanitizeLayout(record.layout);
   return {
     id: String(record.clientRecordId || record.id || record._id || uniqueId("outfit")),
     cloudId: String(record.cloudId || record._id || ""),
@@ -559,13 +573,8 @@ function normalizeOutfit(record = {}) {
     title: String(title).trim().slice(0, 30) || "我的穿搭",
     season: record.season ? normalizeSeason(record.season) : normalizeSeason(record.weatherSnapshot && record.weatherSnapshot.season),
     style: record.style ? normalizeStyle(record.style) : normalizeStyle(record.note),
-    items: {
-      hat: normalizeSlot(rawItems.hat || (/帽|cap|hat/i.test((oldAccessory && oldAccessory.name) || "") ? oldAccessory : null), "hat"),
-      top: normalizeSlot(rawItems.top || record.top, "top"),
-      bottom: normalizeSlot(rawItems.bottom || record.bottom, "bottom"),
-      shoes: normalizeSlot(rawItems.shoes || record.shoes, "shoes"),
-      bag: normalizeSlot(rawItems.bag || (oldAccessory && !/帽|cap|hat/i.test(oldAccessory.name || "") ? oldAccessory : null), "bag")
-    },
+    items,
+    layout,
     previewImageUrl: record.previewImageUrl || "",
     previewFileId: record.previewFileId || "",
     syncStatus: record.syncStatus || (record.cloudId || record._id ? "synced" : "pending"),
@@ -573,14 +582,27 @@ function normalizeOutfit(record = {}) {
   };
 }
 
-function mergeById(primary, secondary, normalizer) {
+function mergeById(primary, secondary, normalizer, options = {}) {
+  const preferLocalOnFullTie = options.preferLocalOnFullTie === true;
   const map = new Map();
   [...secondary, ...primary].forEach((item) => {
     const normalized = normalizer(item);
     const existing = map.get(normalized.id);
     const incomingVersion = Number(normalized.mutationVersion || 0);
     const existingVersion = Number(existing && existing.mutationVersion || 0);
-    if (!existing || incomingVersion > existingVersion || (incomingVersion === existingVersion && normalized.updatedAt >= existing.updatedAt)) {
+    // Round 2B-1 reviewer fix：平局（mutationVersion 与 updatedAt 均相等）时，
+    // mergeById 原 `>=` 让后处理的 primary 覆盖 secondary —— 在云读侧 hydrate（primary=云、
+    // secondary=本地）场景下，无 layout / 旧 layout 的旧云副本会覆盖本地已保存 layout。
+    // 走 preferLocalOnFullTie 的调用方（outfit hydrate）完全平局时保留 secondary（本地），
+    // 其余调用方（本地×legacy、wardrobe hydrate）保持 primary 在平局时胜出的既有语义不变。
+    // 注意短路顺序：existing 为空时一律取新记录，不得访问 existing.updatedAt。
+    const shouldTake = !existing
+      || incomingVersion > existingVersion
+      || (incomingVersion === existingVersion && normalized.updatedAt > existing.updatedAt)
+      || (incomingVersion === existingVersion
+        && normalized.updatedAt === existing.updatedAt
+        && !preferLocalOnFullTie);
+    if (shouldTake) {
       map.set(normalized.id, {
         ...normalized,
         cloudId: normalized.cloudId || (existing && existing.cloudId) || ""
@@ -678,7 +700,9 @@ async function hydrateOutfitsFromCloud() {
     }
     const deletedIds = new Set(read(STORAGE.deletedOutfits, []));
     const cloudItems = allCloudItems.filter((item) => !deletedIds.has(String(item.clientRecordId || item.id || item._id)));
-    const merged = mergeById(cloudItems, readOutfitsAll(scope), normalizeOutfit);
+    // Round 2B-1 reviewer fix：outfit 云读侧完全平局（equal version + equal updatedAt）时优先保留
+    // 本地已保存记录 —— 云副本可能是无 layout / 旧 layout 的旧版本，覆盖会丢掉本地已保存画布。
+    const merged = mergeById(cloudItems, readOutfitsAll(scope), normalizeOutfit, { preferLocalOnFullTie: true });
     write(STORAGE.outfits, merged, scope);
     return merged;
   } catch (err) {
@@ -1155,6 +1179,12 @@ function buildOutfit(payload, existing) {
     trustedItems[slot] = wardrobeSnapshot(live);
   });
   const mutationVersion = existing ? Number(existing.mutationVersion || 0) + 1 : 1;
+  // Round 2B-1：layout 与 items 走同一规范化结果；
+  // payload 显式携带 layout（含 null）时以其为准，否则沿用 existing/source 的 layout，
+  // 再与 trustedItems 对齐（无单品槽位 → null，有单品缺 entry → 默认布局）。
+  const rawLayout = Object.prototype.hasOwnProperty.call(payload, "layout")
+    ? payload.layout
+    : source.layout;
   const record = normalizeOutfit({
     ...source,
     ...payload,
@@ -1164,7 +1194,8 @@ function buildOutfit(payload, existing) {
     mutationVersion,
     title,
     savedAt: Date.now(),
-    items: trustedItems
+    items: trustedItems,
+    layout: alignLayoutToItems(rawLayout, trustedItems)
   });
   return record;
 }
@@ -1184,17 +1215,19 @@ function snapshotToCloudItem(value) {
 }
 
 function outfitCloudPayload(record) {
-  return {
+  const payload = {
     clientRecordId: record.id,
     title: record.title,
     season: record.season,
     style: record.style,
     items: record.items,
+    layout: record.layout || null,
     date: formatLocalDate(),
     savedAt: record.savedAt,
     mutationVersion: record.mutationVersion,
     clientVersion: record.mutationVersion
   };
+  return payload;
 }
 
 async function stabilizeWardrobeItem(item, scope = currentUserScope(), task, guard) {

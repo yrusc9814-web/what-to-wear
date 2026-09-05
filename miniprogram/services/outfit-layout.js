@@ -27,13 +27,27 @@
  *     bag:   80×92  @ (286, 150) scale 1     z10
  *   边距均不触发 clampToCanvas。成套感优先于主体宽度百分比。
  *
- * 注意：layout 本轮只存在于穿搭编辑页内存 data 中，不入云、不随保存协议传输；
- * 云持久化在 V1.5 第二轮接入。
+ * Round 2B-1 起 layout 正式持久化（顶层 layout schema，与 items 分离）：
+ *   layout = {
+ *     version: 1,                       // 固定 1，未来版本不兼容时整体按无效处理
+ *     canvas: { width, height },        // 序列化时的画布基准（rpx），读取时按当前实测画布重映射
+ *     slots: { hat, top, bottom, shoes, bag } // 固定五槽；槽位值为 {x,y,scale,zIndex} 或 null
+ *   }
+ *   - null 槽位表示该槽当前没有单品（删除/未选择），不残留旧 layout。
+ *   - 全部字段经 sanitize（JSON-safe：有限数值、白名单字段、固定五槽），非法值回退该槽默认值。
+ *   - 只在用户保存时写入正式 layout；legacy 记录只在运行时 materialize 默认布局，不自动回填。
+ *   - width/height、selected、missing、手势状态等仍为运行时派生数据，不入 schema。
  */
 
 const SLOT_ORDER = ['hat', 'top', 'bottom', 'shoes', 'bag']
 
 const CANVAS = { width: 360, height: 300 }
+
+const LAYOUT_VERSION = 1
+const LAYOUT_SLOTS = ['hat', 'top', 'bottom', 'shoes', 'bag']
+const MAX_CANVAS_DIMENSION = 10000
+const MAX_COORDINATE = 100000
+const MAX_Z_INDEX = 9999
 
 /** 页面实测点阵画布后写入；仅更新正数宽高，供 clampToCanvas 使用。 */
 function setCanvasSize(width, height) {
@@ -79,22 +93,24 @@ function clampScale(scale) {
 /**
  * 拖出边界约束：以槽位基尺寸 × scale 的一半为半径，把 (x, y) 夹回画布内，
  * 保证图层整体不越出画布；当图元比画布还大时回退到画布中心。
+ * canvas 可选（默认当前模块 CANVAS），供按指定画布基准夹取（重映射后物化）使用。
  * 返回新对象，不改动入参。仅夹取 x/y，不修改 scale/zIndex。
  */
-function clampToCanvas(entry, slot) {
+function clampToCanvas(entry, slot, canvas) {
   const base = BASE_SIZES[slot] || { width: 0, height: 0 }
   const scale = clampScale(entry.scale)
+  const bounds = sanitizeCanvasDimension(canvas) || CANVAS
   const halfW = (base.width * scale) / 2
   const halfH = (base.height * scale) / 2
   let minX = halfW
-  let maxX = CANVAS.width - halfW
+  let maxX = bounds.width - halfW
   let minY = halfH
-  let maxY = CANVAS.height - halfH
+  let maxY = bounds.height - halfH
   if (minX > maxX) {
-    minX = maxX = CANVAS.width / 2
+    minX = maxX = bounds.width / 2
   }
   if (minY > maxY) {
-    minY = maxY = CANVAS.height / 2
+    minY = maxY = bounds.height / 2
   }
   return {
     ...entry,
@@ -165,6 +181,149 @@ function toRenderLayer(slot, layout) {
   }
 }
 
+// ---- Round 2B-1：顶层 layout schema（JSON-safe，与 items 分离，固定五槽） ----
+
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+/** JSON-safe 数值：保留 2 位小数，消除浮点噪声（1.4142135 → 1.41）。 */
+function round2(value) {
+  return Math.round(value * 100) / 100
+}
+
+/** 校验画布基准：正有限数值且不超过上限；非法返回 null。 */
+function sanitizeCanvasDimension(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const width = value.width
+  const height = value.height
+  if (!isFiniteNumber(width) || !isFiniteNumber(height)) return null
+  if (width <= 0 || height <= 0) return null
+  if (width > MAX_CANVAS_DIMENSION || height > MAX_CANVAS_DIMENSION) return null
+  // Round 2B-1 reviewer fix：极小正数（如 0.004）round2 后为 0，会产出非法画布基准；
+  // round 后必须复验 > 0（0.004 这类输入判非法 → 调用方回退默认画布）。
+  const roundedWidth = round2(width)
+  const roundedHeight = round2(height)
+  if (roundedWidth <= 0 || roundedHeight <= 0) return null
+  return { width: roundedWidth, height: roundedHeight }
+}
+
+/**
+ * 单槽 entry 白名单化：仅保留 {x, y, scale, zIndex}；
+ * 非法字段回退该槽默认值（scale 非法走 clampScale → 1；zIndex 取整并限幅）。
+ * x/y 超出合理数值边界（远超任何画布）时整槽回退默认，避免病态数据。
+ */
+function sanitizeSlotEntry(slot, value) {
+  const base = DEFAULT_LAYOUT[slot] || { x: 0, y: 0, scale: 1, zIndex: 2 }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...base }
+  }
+  let x = base.x
+  let y = base.y
+  if (isFiniteNumber(value.x) && Math.abs(value.x) <= MAX_COORDINATE) x = round2(value.x)
+  if (isFiniteNumber(value.y) && Math.abs(value.y) <= MAX_COORDINATE) y = round2(value.y)
+  const scale = round2(clampScale(isFiniteNumber(value.scale) ? value.scale : base.scale))
+  let zIndex = base.zIndex
+  if (isFiniteNumber(value.zIndex)) {
+    zIndex = Math.min(MAX_Z_INDEX, Math.max(-MAX_Z_INDEX, Math.round(value.zIndex)))
+  }
+  return { x, y, scale, zIndex }
+}
+
+/**
+ * sanitize 任意输入为顶层 layout schema。
+ * 接受 schema 形状（value.slots）或运行时形状（value 自带五槽键）；
+ * 非对象输入返回 null（调用方据此走 legacy 默认布局，不报错）。
+ * 固定五槽：schema 形状缺失 slots 时按全 null 处理；null 槽位保持 null（无单品）。
+ */
+function sanitizeLayout(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  // Round 2B-1 reviewer fix：version 必须严格为数值 1（Number.isInteger 且 === 1）；
+  // 字符串 "1"（乃至 "1.0" 等）一律按未知版本整体判无效，调用方走 legacy 默认布局回退。
+  if (value.version !== undefined) {
+    if (typeof value.version !== 'number' || !Number.isInteger(value.version) || value.version !== LAYOUT_VERSION) return null
+  }
+  const rawSlots = value.slots && typeof value.slots === 'object' && !Array.isArray(value.slots)
+    ? value.slots
+    : (LAYOUT_SLOTS.some((slot) => value[slot] !== undefined) ? value : null)
+  const canvas = sanitizeCanvasDimension(value.canvas) || { ...CANVAS }
+  const slots = {}
+  LAYOUT_SLOTS.forEach((slot) => {
+    const raw = rawSlots ? rawSlots[slot] : undefined
+    slots[slot] = raw === null || raw === undefined ? null : sanitizeSlotEntry(slot, raw)
+  })
+  return { version: LAYOUT_VERSION, canvas, slots }
+}
+
+/**
+ * 运行时 layouts + 槽位占用 → 可持久化 schema。
+ * filledSlots：当前有单品的槽位数组（未占用槽位序列化为 null，避免残留旧 layout）；
+ * 省略时以运行时 entry 存在与否判断。canvas 缺省用当前实测画布基准。
+ */
+function serializeLayout(layouts, options = {}) {
+  const canvas = sanitizeCanvasDimension(options.canvas) || { ...CANVAS }
+  const filled = Array.isArray(options.filledSlots) ? new Set(options.filledSlots) : null
+  const slots = {}
+  LAYOUT_SLOTS.forEach((slot) => {
+    const raw = layouts && typeof layouts === 'object' ? layouts[slot] : null
+    const isFilled = filled ? filled.has(slot) : Boolean(raw)
+    slots[slot] = isFilled && raw ? sanitizeSlotEntry(slot, raw) : null
+  })
+  return { version: LAYOUT_VERSION, canvas, slots }
+}
+
+/**
+ * 运行时物化：把已保存 schema 物化成页面五槽运行时 layouts。
+ * - 无 schema / 非法 schema（legacy、缺失、脏数据）→ 全默认布局，不报错。
+ * - 有 schema 时按「存储画布基准 → 当前画布基准」等比重映射 x/y，
+ *   scale 乘 min(宽比, 高比) 后限幅，再按当前画布 clamp，避免设备尺寸变化失真。
+ * - null/缺失槽位回退默认槽位布局。
+ * targetCanvas 缺省用当前模块 CANVAS。
+ */
+function materializeLayout(value, options = {}) {
+  const schema = sanitizeLayout(value)
+  const target = sanitizeCanvasDimension(options.canvas) || { ...CANVAS }
+  const layouts = defaultLayouts()
+  if (!schema) return layouts
+  const ratioX = target.width / schema.canvas.width
+  const ratioY = target.height / schema.canvas.height
+  const ratioScale = Math.min(ratioX, ratioY)
+  LAYOUT_SLOTS.forEach((slot) => {
+    const entry = schema.slots[slot]
+    if (!entry) return
+    const remapped = {
+      x: entry.x * ratioX,
+      y: entry.y * ratioY,
+      scale: entry.scale * ratioScale,
+      zIndex: entry.zIndex
+    }
+    layouts[slot] = clampToCanvas(remapped, slot, target)
+  })
+  return layouts
+}
+
+/**
+ * items 对齐：保证 schema 与五槽 items 一致。
+ * - 无单品槽位 → null（删除/替换不残留旧 layout）。
+ * - 有单品但缺 layout entry → 该槽默认布局。
+ * layout 可为 null（legacy）→ 仅在有单品槽位上生成默认 entry，canvas 用当前基准。
+ */
+function alignLayoutToItems(layout, items) {
+  const schema = sanitizeLayout(layout)
+  const canvas = schema ? schema.canvas : { ...CANVAS }
+  const slots = {}
+  LAYOUT_SLOTS.forEach((slot) => {
+    const item = items && typeof items === 'object' ? items[slot] : null
+    const hasItem = Boolean(item && (item.itemId || item.id))
+    if (!hasItem) {
+      slots[slot] = null
+      return
+    }
+    slots[slot] = (schema && schema.slots[slot]) || { ...DEFAULT_LAYOUT[slot] }
+  })
+  return { version: LAYOUT_VERSION, canvas, slots }
+}
+
 module.exports = {
   SLOT_ORDER,
   CANVAS,
@@ -179,5 +338,13 @@ module.exports = {
   moveLayer,
   resetSlot,
   resetAll,
-  toRenderLayer
+  toRenderLayer,
+  LAYOUT_VERSION,
+  LAYOUT_SLOTS,
+  sanitizeCanvasDimension,
+  sanitizeSlotEntry,
+  sanitizeLayout,
+  serializeLayout,
+  materializeLayout,
+  alignLayoutToItems
 }

@@ -30,7 +30,10 @@ function emptyDraft() {
     season: null,
     style: null,
     mode: 'create',
-    dirty: false
+    dirty: false,
+    // Round 2B-1：layout 顶层 schema 快照（与 items 分离）。仅随 draft 持久化，
+    // 用于中断后恢复画布；legacy（null）一律由运行时 materialize 默认布局，不自动回填。
+    layout: null
   }
 }
 
@@ -77,7 +80,8 @@ Page({
     saving: false,
     seasonOptions: SEASONS,
     styleOptions: STYLES,
-    // 自由画布布局：仅页面内 data 状态，不入云、不进保存协议（V1.5 第二轮接云端持久化）
+    // 自由画布布局：Round 2B-1 起布局正式持久化——保存时随协议入云、编辑时从已保存
+    // layout（schema）物化恢复；页面 data 的 layouts/renderLayers 仍为运行时派生状态。
     layouts: null,
     // 派生渲染层：由 layouts 计算得到（width/height = 基尺寸 × scale），
     // 所有写 layouts 的入口统一经过 buildRenderLayers 刷新
@@ -100,8 +104,17 @@ Page({
     // 画布布局初始化状态：hasLoadedLayout 标记是否已建立布局；
     // lastLayoutFingerprint 记录最近一次建立/重建布局时的 draft 内容指纹，
     // 用于 onShow 时判断「draft 是否真的变化」，前后台切换不丢用户画布调整。
+    // _pendingSchemaRemap 记录最近一次从已保存 schema 物化的布局，等待实测画布后重映射；
+    // 任何用户布局编辑即失效（统一走 invalidatePendingSchemaRemap，见 measureCanvas 注释）。
     this.hasLoadedLayout = false
     this.lastLayoutFingerprint = ''
+    this._pendingSchemaRemap = null
+    this._saveInFlight = false
+    // Round 2B-1 reviewer fix：load 请求代次 —— 每次 loadEditor 启动自增，异步回调（含 catch）
+    // 先校验代次再落地；onShow(119) 与下拉刷新(122-124) 并发触发时，较旧响应的
+    // wardrobe/draft/layout 均为过期快照，一律丢弃，避免旧数据覆盖较新的 draft/layout。
+    // 保存侧采用「保存开始时刻 items+layout 同源快照」语义（见 commitSave），无需额外代次。
+    this._loadToken = 0
     const info = (wx.getWindowInfo && wx.getWindowInfo()) || wx.getSystemInfoSync()
     this.windowWidth = info.windowWidth || 375
     this.rpxPerPx = 750 / this.windowWidth
@@ -117,22 +130,34 @@ Page({
   },
 
   async loadEditor() {
+    // 惰性取号：兼容未走 onLoad 直测 loadEditor 的测试夹具（_loadToken 初始为 undefined）。
+    const token = (this._loadToken || 0) + 1
+    this._loadToken = token
     this.setData({ state: 'loading', errorMessage: '' })
     try {
       const wardrobeResult = await appService.listWardrobeItems({ includeDeleted: false })
+      // Round 2B-1 reviewer fix：load 代次校验 —— 期间有更新的 loadEditor 发起时，
+      // 本响应已过期，直接丢弃（含错误分支统一在 catch 校验），避免旧数据覆盖新 draft/layout。
+      if (token !== this._loadToken) return
       const wardrobe = (Array.isArray(wardrobeResult) ? wardrobeResult : (wardrobeResult && wardrobeResult.items) || [])
         .filter((item) => !item.deletedAt)
         .map(presentItem)
       const storedDraft = appService.getOutfitDraft()
       const draft = this.reconcileDraft(storedDraft || emptyDraft(), wardrobe)
-      // 布局重建策略：仅在首次加载（尚未初始化）或 draft 内容指纹变化（套装内容
-      // 真的变了）时重置 layouts；onShow 等场景保留用户已调整的布局。
-      const fingerprint = SLOT_ORDER.map((slot) => itemId(draft.slots[slot])).join('|')
+      // Round 2B-1 布局恢复策略：
+      //  - 指纹 = 五槽单品 + sourceOutfitId；仅首次加载或指纹变化时重建/物化布局，
+      //    前后台切换与未变草稿保留用户已调整的画布；不同 sourceOutfitId 绝不串布局。
+      //  - 指纹变化时优先物化 draft.layout（编辑 handoff 的已保存 schema / 中断前快照），
+      //    无 schema（legacy、新建）回退默认布局；实测画布量测后再按 schema.canvas 重映射。
+      const fingerprint = this.draftLayoutFingerprint(draft)
       const layoutsChanged = !this.hasLoadedLayout || fingerprint !== this.lastLayoutFingerprint
+      const savedSchema = layoutsChanged ? outfitLayout.sanitizeLayout(draft.layout) : null
+      this._pendingSchemaRemap = savedSchema
       const layouts = layoutsChanged
-        ? outfitLayout.defaultLayouts()
+        ? (savedSchema ? outfitLayout.materializeLayout(savedSchema) : outfitLayout.defaultLayouts())
         : (this.data.layouts || outfitLayout.defaultLayouts())
       const selectedSlot = layoutsChanged ? '' : this.data.selectedSlot
+      if (token !== this._loadToken) return
       this.lastLayoutFingerprint = fingerprint
       this.hasLoadedLayout = true
       this.setData({
@@ -145,10 +170,16 @@ Page({
         state: 'ready'
       })
       this.refreshPresentation()
-      if (storedDraft) appService.persistOutfitDraft(draft)
+      // 保持最后一道落盘代次校验：当前流程在上一次 await 后是同步的，但这能避免未来在
+      // presentation 链路加入异步工作时，已失效 load 仍把旧 draft 写入本地 storage。
+      if (storedDraft && token === this._loadToken) appService.persistOutfitDraft(draft)
       this.hasLoaded = true
-      this.measureCanvas()
+      // Round 2B-1 reviewer fix：量测附属于本次 load 代次 —— measureCanvas 异步回调
+      // 落地前按该代次校验，过期测量整体丢弃（见 measureCanvas 内 requestToken 注释）。
+      this.measureCanvas(token)
     } catch (error) {
+      // Round 2B-1 reviewer fix：过期请求的错误同样不得覆盖较新加载的 ready/error 状态。
+      if (token !== this._loadToken) return
       this.setData({
         state: 'error',
         errorMessage: (error && error.message) || '穿搭数据加载失败'
@@ -177,8 +208,16 @@ Page({
       season: source.season || null,
       style: source.style || null,
       mode: source.mode === 'edit' && source.sourceOutfitId ? 'edit' : 'create',
-      dirty: Boolean(source.dirty)
+      dirty: Boolean(source.dirty),
+      // Round 2B-1：layout schema 随 draft 原样带过（legacy/null 由加载端 materialize 兜底）；
+      // 物化对齐由 loadEditor 与保存链负责，不在这里改脏数据。
+      layout: source.layout || null
     }
+  },
+
+  /** draft 内容指纹：纳入 sourceOutfitId 与五槽单品 id —— 不同来源/不同套装绝不串布局。 */
+  draftLayoutFingerprint(draft) {
+    return SLOT_ORDER.map((slot) => itemId(draft.slots[slot])).join('|') + '#' + String(draft.sourceOutfitId || '')
   },
 
   refreshPresentation() {
@@ -243,9 +282,25 @@ Page({
 
   persistDraft(patch) {
     const draft = { ...this.data.draft, ...patch }
+    // Round 2B-1：每次草稿变更都把当前画布 layout 序列化进 draft，中断/重启后可恢复；
+    // 仅含当前有单品的槽位（无单品槽 → null），删除/替换不残留旧布局。
+    draft.layout = this.serializeSlotsLayout(draft.slots || emptySlots())
     this.setData({ draft })
     appService.persistOutfitDraft(draft)
     this.refreshPresentation()
+  },
+
+  serializeSlotsLayout(slots) {
+    const filled = SLOT_ORDER.filter((slot) => slots[slot] && itemId(slots[slot]))
+    const layouts = this.data.layouts || outfitLayout.defaultLayouts()
+    return outfitLayout.serializeLayout(layouts, {
+      canvas: { width: outfitLayout.CANVAS.width, height: outfitLayout.CANVAS.height },
+      filledSlots: filled
+    })
+  },
+
+  serializeCurrentLayout() {
+    return this.serializeSlotsLayout(this.data.draft.slots)
   },
 
   onSelectItem(event) {
@@ -253,6 +308,18 @@ Page({
     const id = String(event.currentTarget.dataset.id || '')
     if (!SLOT_ORDER.includes(category)) return
     const selected = id ? this.data.wardrobe.find((item) => item.id === id) || null : null
+    // Round 2B-1：槽位单品被替换/换新时该槽布局复位默认（新单品尺寸不同，不沿用旧图摆放），
+    // 保证 serialize 不残留旧 layout；删除槽位本身由 serialize 的 filledSlots 置 null。
+    // Round 2B-1 reviewer fix：槽位内容变更（换单品/移除）属用户布局编辑，先失效挂起
+    // schema 重映射，量测回调不得再用旧 schema 覆盖画布。
+    const previous = this.data.draft.slots[category]
+    const slotChanged = itemId(previous) !== itemId(selected)
+    if (slotChanged) this.invalidatePendingSchemaRemap()
+    if (slotChanged && selected) {
+      const layouts = this.data.layouts || outfitLayout.defaultLayouts()
+      const nextLayouts = { ...layouts, [category]: { ...outfitLayout.DEFAULT_LAYOUT[category] } }
+      this.setData({ layouts: nextLayouts, renderLayers: this.buildRenderLayers(nextLayouts, this.data.selectedSlot) })
+    }
     const slots = { ...this.data.draft.slots, [category]: selected }
     this.persistDraft({ slots, dirty: true })
     if (this.data.selectedSlot === category && !selected) {
@@ -329,12 +396,48 @@ Page({
     this.refreshRenderLayers()
   },
 
-  measureCanvas() {
+  // ---- 自由画布：挂起 schema 重映射失效（用户布局 mutation 统一 helper）----
+  // Round 2B-1 reviewer fix：loadEditor 指纹变化后会挂起 _pendingSchemaRemap，等待
+  // boundingClientRect 实测回调把 schema 按实测画布重映射。该回调异步落地，若期间用户
+  // 已发生任何布局编辑（拖动/捏合、层级上移下移、单槽/整套重置、换一套、槽位换单品/移除），
+  // 且回调仍消费挂起 schema，就会用保存时的旧 schema 物化结果覆盖用户最新 runtime
+  // layout（runtime 与已持久化 draft 分叉）。故所有用户布局 mutation 统一调用本 helper
+  // 明确失效挂起重映射；失效后同代次量测回调仍正常写实测画布尺寸（clamp 基准），
+  // 仅跳过 schema 重映射，未发生用户编辑的正常量测重映射不受影响。
+  invalidatePendingSchemaRemap() {
+    this._pendingSchemaRemap = null
+  },
+
+  measureCanvas(token) {
     if (typeof wx === 'undefined' || typeof wx.createSelectorQuery !== 'function') return
+    // Round 2B-1 reviewer fix：boundingClientRect 回调为异步落地，测量结果属于「发起时的
+    // load 代次」。并发 load（onShow/下拉刷新）下旧 load 的测量回调可能在新 loadEditor 落地
+    // 之后才返回，若直接执行会消费掉新代次写入的 _pendingSchemaRemap 并重映射/覆盖较新的
+    // layouts。故发起时记录 requestToken（loadEditor 显式传本次 token），回调落地前先校验：
+    // 过期测量整体丢弃 —— 含 setCanvasSize 模块副作用与 schema 重映射，一律不得触碰
+    // 模块几何基准或页面 layouts（画布尺寸随后由最新一代 load 自己的测量回调写入，不丢失）。
+    const requestToken = typeof token === 'number' ? token : this._loadToken
     const query = wx.createSelectorQuery()
     query.select('.composition').boundingClientRect((rect) => {
+      if (requestToken !== this._loadToken) return
       if (!rect || !rect.width || !rect.height) return
       outfitLayout.setCanvasSize(rect.width * this.rpxPerPx, rect.height * this.rpxPerPx)
+    // Round 2B-1：量测完成后再把已保存 schema 物化布局按「存储基准 → 实测画布」重映射一次，
+    // 让不同屏幕尺寸恢复的摆放与保存时一致（此前仅用回退画布粗物化）。
+    // 同代次内若用户已编辑布局，pending 已被 invalidatePendingSchemaRemap 失效，
+    // 此处仅剩 setCanvasSize 生效，不再覆盖用户 layout。
+      if (this._pendingSchemaRemap) {
+        const schema = this._pendingSchemaRemap
+        this._pendingSchemaRemap = null
+        const current = this.data.layouts
+        const nextLayouts = outfitLayout.materializeLayout(schema)
+        if (JSON.stringify(current) !== JSON.stringify(nextLayouts)) {
+          this.setData({
+            layouts: nextLayouts,
+            renderLayers: this.buildRenderLayers(nextLayouts, this.data.selectedSlot)
+          })
+        }
+      }
     }).exec()
   },
 
@@ -382,6 +485,8 @@ Page({
     const layouts = this.data.layouts
     const current = layouts && layouts[slot]
     if (!current) return
+    // 拖动/捏合即用户布局编辑：失效挂起 schema 重映射（旧量测回调不得再用旧 schema 覆盖）
+    this.invalidatePendingSchemaRemap()
     let next = { ...current, ...patch }
     if (clamp) next = outfitLayout.clampToCanvas(next, slot)
     const nextLayouts = { ...layouts, [slot]: next }
@@ -433,6 +538,8 @@ Page({
       return
     }
     this._gesture = null
+    // Round 2B-1：拖动/捏合结束即落盘 layout 快照（含 dirty），中断后 reload/restart 可恢复。
+    if (gesture.moved) this.persistDraft({ dirty: true })
   },
 
   // ---- 自由画布：图层与重置工具 ----
@@ -451,30 +558,42 @@ Page({
     const slot = (event && event.currentTarget && event.currentTarget.dataset.slot) || this.data.selectedSlot
     if (!slot || !SLOT_ORDER.includes(slot)) return
     if (!this.data.draft.slots[slot]) return
+    // 层级上移/下移即用户布局编辑：失效挂起 schema 重映射
+    this.invalidatePendingSchemaRemap()
     const nextLayouts = outfitLayout.moveLayer(this.data.layouts, slot, delta)
     this.setData({
       selectedSlot: slot,
       layouts: nextLayouts,
       renderLayers: this.buildRenderLayers(nextLayouts, slot)
     })
+    // Round 2B-1：层级调整落盘 layout 快照，保存/重启后可恢复。
+    this.persistDraft({ dirty: true })
   },
 
   onResetSlot() {
     const slot = this.data.selectedSlot
     if (!slot) return
+    // 单槽重置即用户布局编辑：失效挂起 schema 重映射
+    this.invalidatePendingSchemaRemap()
     const nextLayouts = outfitLayout.resetSlot(this.data.layouts, slot)
     this.setData({
       layouts: nextLayouts,
       renderLayers: this.buildRenderLayers(nextLayouts, slot)
     })
+    // Round 2B-1：重置落盘 layout 快照，保存/重启后可恢复。
+    this.persistDraft({ dirty: true })
   },
 
   onResetAll() {
+    // 整套重置即用户布局编辑：失效挂起 schema 重映射
+    this.invalidatePendingSchemaRemap()
     const nextLayouts = outfitLayout.defaultLayouts()
     this.setData({
       layouts: nextLayouts,
       renderLayers: this.buildRenderLayers(nextLayouts, this.data.selectedSlot)
     })
+    // Round 2B-1：整套重置落盘 layout 快照，保存/重启后可恢复。
+    this.persistDraft({ dirty: true })
   },
 
   onShuffle() {
@@ -513,6 +632,12 @@ Page({
       }
       attempts += 1
     } while (attempts < 6 && this.sameSlots(nextSlots, this.data.draft.slots))
+    // Round 2B-1：换一套即整套槽位替换，旧画布摆放不再适用 —— 画布复位默认再落盘，
+    // 避免把上一套的拖放/缩放/层级残留到随机新套装上。
+    // 整套替换即用户布局编辑：失效挂起 schema 重映射。
+    this.invalidatePendingSchemaRemap()
+    const resetLayouts = outfitLayout.defaultLayouts()
+    this.setData({ layouts: resetLayouts, renderLayers: this.buildRenderLayers(resetLayouts, this.data.selectedSlot) })
     this.persistDraft({ slots: nextSlots, dirty: true })
     wx.showToast({ title: `已按${SEASON_MAP[season]}季更换`, icon: 'none' })
   },
@@ -572,15 +697,16 @@ Page({
     return ''
   },
 
-  // 保存协议本轮不变：payload 不携带画布 layout（layout 仅存页面 data 状态，
-  // V1.5 第二轮接云端持久化）
+  // Round 2B-1：保存 payload 携带序列化 layout（schema，与 items 分离）；
+  // app-service buildOutfit 的 alignLayoutToItems 负责与槽位单品最终对齐后持久化。
   buildPayload() {
     const { draft } = this.data
     return {
       title: String(draft.title).trim(),
       season: draft.season,
       style: draft.style,
-      items: draft.slots
+      items: draft.slots,
+      layout: this.serializeCurrentLayout()
     }
   },
 
@@ -597,26 +723,50 @@ Page({
   },
 
   async commitSave(action) {
-    if (this.data.saving) return
+    // Round 2B-1：保存中防护 —— 重复点击/并行提交直接忽略，避免重复 create/update 记录。
+    if (this._saveInFlight || this.data.saving) return
     const message = this.validateForm()
     if (message) {
       wx.showToast({ title: message, icon: 'none' })
       return
     }
+    this._saveInFlight = true
     this.setData({ saving: true })
+    // Round 2B-1 reviewer fix：保存「开始时刻」的 items + layout 同源快照。
+    // 保存期间若发生并发 loadEditor（onShow/下拉刷新）替换 this.data.draft，
+    // 完成回调一律基于本快照拼回草稿 —— 绝不把「保存结束时的 this.data.draft.items」
+    // 与「旧 saved.layout」混写成新 draft（items 新、layout 旧交叉混写）。
+    const snapshotDraft = { ...this.data.draft, slots: { ...this.data.draft.slots } }
+    const snapshotLayout = this.serializeSlotsLayout(snapshotDraft.slots)
     try {
       let saved
       if (action === 'update') {
-        saved = await appService.updateSavedOutfit(this.data.draft.sourceOutfitId, this.buildPayload())
+        saved = await appService.updateSavedOutfit(snapshotDraft.sourceOutfitId, {
+          title: String(snapshotDraft.title).trim(),
+          season: snapshotDraft.season,
+          style: snapshotDraft.style,
+          items: snapshotDraft.slots,
+          layout: snapshotLayout
+        })
       } else {
-        saved = await appService.createSavedOutfit(this.buildPayload())
+        saved = await appService.createSavedOutfit({
+          title: String(snapshotDraft.title).trim(),
+          season: snapshotDraft.season,
+          style: snapshotDraft.style,
+          items: snapshotDraft.slots,
+          layout: snapshotLayout
+        })
       }
       const isUpdate = action === 'update'
       const draft = {
-        ...this.data.draft,
+        ...snapshotDraft,
         sourceOutfitId: isUpdate ? saved.id : null,
         mode: isUpdate ? 'edit' : 'create',
-        dirty: false
+        dirty: false,
+        // Round 2B-1：保存成功后把「实际入云的 layout」（align 后）写回 draft 快照，
+        // 与云端/本地记录严格一致；快照兜底（saved.layout 缺失时）用保存开始时刻的
+        // items+layout 同源序列化，保证 items 与 layout 永不交叉混写。
+        layout: saved.layout || snapshotLayout
       }
       appService.persistOutfitDraft(draft)
       this.setData({ draft, saveOpen: false, saving: false })
@@ -631,8 +781,10 @@ Page({
         })
       }
     } catch (error) {
-      this.setData({ saving: false })
       wx.showToast({ title: (error && error.message) || '保存失败，请重试', icon: 'none' })
+    } finally {
+      this._saveInFlight = false
+      this.setData({ saving: false })
     }
   },
 

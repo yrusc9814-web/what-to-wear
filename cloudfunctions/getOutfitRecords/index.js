@@ -1,8 +1,13 @@
 const cloud = require("wx-server-sdk");
+const { sanitizeOutfitLayout } = require("./shared/outfit-slots");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
 function mapOutfit(record) {
+  // Round 2B-1 reviewer fix：layout 透传 raw 会被客户端当作可信数据消费；读侧同样用
+  // 服务端 sanitizeOutfitLayout 收口（与 saveOutfit/updateSavedOutfit 写入镜像语义一致），
+  // 返回收口后的 layout（非法/legacy 无 layout → null，客户端走运行时默认布局回退）。
+  const rawLayout = record.layout || null;
   return {
     id: record.clientRecordId || record._id,
     _id: record._id,
@@ -13,6 +18,7 @@ function mapOutfit(record) {
     season: record.season || "",
     style: record.style || "",
     items: record.items || null,
+    layout: rawLayout ? sanitizeOutfitLayout(rawLayout) : null,
     top: record.top || null,
     bottom: record.bottom || null,
     shoes: record.shoes || null,
